@@ -7067,6 +7067,15 @@ static void qe_key_process(QEmacsState *qs, int key)
 
     c->keys[c->nb_keys++] = key;
     s = qs->active_window;
+
+    /* Vi/Evil modal interception */
+    if (s && !(s->flags & WF_MINIBUF) && !c->describe_key) {
+        if (vi_handle_key(s, key)) {
+            qe_key_init(c);
+            return;
+        }
+    }
+
     if (s == NULL) {
         s = qs->active_window = qs->first_window;
         if (s == NULL)
@@ -7669,6 +7678,8 @@ EditState *qe_new_window(EditBuffer *b,
     s->x2 = x1 + width;
     s->y2 = y1 + height;
     s->flags = flags;
+    if (!(flags & (WF_POPUP | WF_MINIBUF | WF_FILELIST)))
+        s->flags |= WF_VI_NORMAL;
     compute_virtual_window_size(s);
     compute_client_area(s);
 
@@ -7692,6 +7703,11 @@ EditState *qe_new_window(EditBuffer *b,
 
     /* restore saved window settings, set mode */
     switch_to_buffer(s, b);
+
+    /* Enable evil/vi normal mode by default for ordinary text windows */
+    if (!(s->flags & (WF_POPUP | WF_MINIBUF | WF_FILELIST)))
+        s->flags |= WF_VI_NORMAL;
+
     return s;
 }
 

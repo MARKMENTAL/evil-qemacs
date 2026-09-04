@@ -391,11 +391,26 @@ int get_clock_usec(void) {
 
 #ifdef __TINYC__
 
-/* the glibc folks use wrappers, but forgot to put a compatibility
-   function for non GCC compilers ! */
-int stat(__const char *__path,
-         struct stat *__statbuf)
-{
-    return __xstat(_STAT_VER, __path, __statbuf);
-}
+/* Glibc ABI forwarders for compilers without GNU inline redirection */
+extern int __xstat(int ver, const char *path, struct stat *statbuf);
+extern int __lxstat(int ver, const char *path, struct stat *statbuf);
+extern int __cxa_atexit(void (*func)(void *), void *arg, void *dso_handle);
+
+#ifndef __THROW
+#define __THROW
 #endif
+
+int stat(const char *path, struct stat *statbuf) {
+    return __xstat(0, path, statbuf);
+}
+
+int lstat(const char *path, struct stat *statbuf) {
+    return __lxstat(0, path, statbuf);
+}
+
+int atexit(void (*__func)(void)) __THROW {
+    return __cxa_atexit((void (*)(void *))__func, (void *)0, (void *)0);
+}
+
+#endif /* __TINYC__ */
+

@@ -748,6 +748,7 @@ struct EditState {
                                   (list mode only) */
     int up_down_last_x;     /* last x offset for vertical movement */
     int mouse_down_offset;
+    int vi_pending;         /* pending first key of a multi-key vi command */
 
     /* low level colorization function */
     ModeDef *colorize_mode;
@@ -805,6 +806,7 @@ struct EditState {
 #define WF_HIDDEN     0x0010 /* hidden window, used for temporary changes */
 #define WF_MINIBUF    0x0020 /* true if single line editing */
 #define WF_ACTIVE     0x0040 /* true if window is active or minibuf target */
+#define WF_VI_NORMAL  0x0080 /* vi/evil normal mode is active */
 #define WF_FILELIST   0x1000 /* window is interactive file list */
 
     OWNED char *prompt;  /* optional window prompt, utf8 */
@@ -834,6 +836,9 @@ struct EditState {
 
 /* Ugly patch for saving/restoring window data upon switching buffer */
 #define SAVED_DATA_SIZE  offsetof(EditState, end_of_saved_data)
+
+/* Vi/Evil modal editing layer */
+int vi_handle_key(EditState *s, int key);
 
 struct ModeProbeData {
     const char *real_filename;
@@ -2024,3 +2029,4 @@ EditBuffer *qe_new_shell_buffer(QEmacsState *qs, EditBuffer *b0, EditState *e,
                                 int shell_flags);
 void qe_diff_buffer_with_file(EditState *s, EditBuffer *b);
 #endif
+
