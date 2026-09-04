@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
 #include <sys/time.h>
 
 #include "qe.h"
@@ -197,6 +198,124 @@ static void tty_term_suspend(int sig);
 static void tty_term_resume(int sig);
 static void tty_term_exit(void);
 static void tty_read_handler(void *opaque);
+
+/* Query the terminal's default foreground/background colors via OSC 10/11.
+ * Returns 0 on success and fills *fg and *bg with QERGB colors. */
+static int tty_parse_osc_rgb(const char *str, QEColor *color)
+{
+    const char *p;
+    unsigned int r = 0, g = 0, b = 0;
+    int digits, scale;
+
+    p = strchr(str, ':');
+    if (!p)
+        return -1;
+    p++;
+    if (sscanf(p, "%x/%x/%x", &r, &g, &b) != 3)
+        return -1;
+
+    digits = 0;
+    while (qe_isxdigit((unsigned char)p[digits]))
+        digits++;
+    scale = digits * 4 - 8;
+    if (scale <= 0) {
+        r &= 0xFF;
+        g &= 0xFF;
+        b &= 0xFF;
+    } else {
+        r >>= scale;
+        g >>= scale;
+        b >>= scale;
+    }
+    *color = QERGB(r, g, b);
+    return 0;
+}
+
+static int tty_read_osc(int fd, char *buf, int size, int timeout_ms)
+{
+    int n = 0;
+    int deadline = get_clock_ms() + timeout_ms;
+
+    while (n < size - 1) {
+        fd_set fds;
+        struct timeval tv;
+        int now = get_clock_ms();
+        int wait = deadline - now;
+        int ret;
+        char ch;
+
+        if (wait <= 0)
+            break;
+        tv.tv_sec = wait / 1000;
+        tv.tv_usec = (wait % 1000) * 1000;
+        FD_ZERO(&fds);
+        FD_SET(fd, &fds);
+        ret = select(fd + 1, &fds, NULL, NULL, &tv);
+        if (ret <= 0)
+            break;
+        if (read(fd, &ch, 1) != 1)
+            break;
+        buf[n++] = ch;
+        if (ch == '\007' || (n >= 2 && buf[n - 2] == '\033' && buf[n - 1] == '\\'))
+            break;
+    }
+    buf[n] = '\0';
+    return n;
+}
+
+static void tty_query_default_colors(QEditScreen *s)
+{
+    int fd = fileno(s->STDIN);
+    char buf[256];
+    QEColor fg = 0, bg = 0;
+    int got_fg = 0, got_bg = 0;
+
+    if (!isatty(fd))
+        return;
+
+    /* discard any input that arrived before the query.  Do not rely on
+     * O_NONBLOCK for this: some pty/tty setups ignore it for read(). */
+    {
+        int r;
+        fd_set fds;
+        struct timeval tv;
+        while (1) {
+            FD_ZERO(&fds);
+            FD_SET(fd, &fds);
+            tv.tv_sec = 0;
+            tv.tv_usec = 0;
+            if (select(fd + 1, &fds, NULL, NULL, &tv) <= 0)
+                break;
+            r = read(fd, buf, sizeof(buf));
+            if (r <= 0)
+                break;
+        }
+    }
+
+    /* query default foreground */
+    TTY_FPRINTF(s->STDOUT, "\033]10;?\007");
+    fflush(s->STDOUT);
+    if (tty_read_osc(fd, buf, sizeof(buf), 200) > 0) {
+        if (strstr(buf, "10;") && tty_parse_osc_rgb(buf, &fg) == 0)
+            got_fg = 1;
+    }
+
+    /* query default background */
+    TTY_FPRINTF(s->STDOUT, "\033]11;?\007");
+    fflush(s->STDOUT);
+    if (tty_read_osc(fd, buf, sizeof(buf), 200) > 0) {
+        if (strstr(buf, "11;") && tty_parse_osc_rgb(buf, &bg) == 0)
+            got_bg = 1;
+    }
+
+    if (got_fg && got_bg) {
+        qe_styles[QE_STYLE_DEFAULT].fg_color = fg;
+        qe_styles[QE_STYLE_DEFAULT].bg_color = bg;
+        qe_styles[QE_STYLE_SHELL].fg_color = fg;
+        qe_styles[QE_STYLE_SHELL].bg_color = bg;
+        s->qs->complete_refresh = 1;
+    }
+}
 
 static void tty_term_set_raw(QEditScreen *s) {
     TTYState *ts;
@@ -589,7 +708,10 @@ static int tty_dpy_init(QEditScreen *s, QEmacsState *qs,
     sig.sa_handler = tty_term_resume;
     sigaction(SIGCONT, &sig, NULL);
 
-    fcntl(fileno(s->STDIN), F_SETFL, O_NONBLOCK);
+    {
+        int flags = fcntl(fileno(s->STDIN), F_GETFL);
+        fcntl(fileno(s->STDIN), F_SETFL, flags | O_NONBLOCK);
+    }
     /* If stdout is to a pty, make sure we aren't in nonblocking mode.
      * Otherwise, the printf()s in term_flush() can fail with EAGAIN,
      * causing repaint errors when running in an xterm or in a screen
@@ -600,6 +722,9 @@ static int tty_dpy_init(QEditScreen *s, QEmacsState *qs,
 
     /* get screen dimensions and allocate screen buffer */
     tty_dpy_invalidate(s);
+
+    /* use the terminal's own default colors if it answers OSC 10/11 */
+    tty_query_default_colors(s);
 
 #if 0
     if (ts->term_flags & KBS_CONTROL_H) {

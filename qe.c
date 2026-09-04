@@ -7072,6 +7072,7 @@ static void qe_key_process(QEmacsState *qs, int key)
     if (s && !(s->flags & WF_MINIBUF) && !c->describe_key) {
         if (vi_handle_key(s, key)) {
             qe_key_init(c);
+            qe_display(qs);
             return;
         }
     }
