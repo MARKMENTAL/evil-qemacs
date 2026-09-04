@@ -759,6 +759,9 @@ struct EditState {
     /* after this limit, the fields are not saved into the buffer */
     int end_of_saved_data;
 
+    int vi_search_dir;      /* last vi search direction: 1 forward, -1 backward */
+    char vi_search_str[256]; /* last vi search pattern */
+
     EditBuffer *b;
 
     EditBuffer *last_buffer;    /* for predict_switch_to_buffer */

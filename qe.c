@@ -12650,9 +12650,9 @@ static int qe_init(QEmacsState *qs, int argc, char **argv)
     }
 #endif
 #ifdef CONFIG_TINY
-    put_status(s, "Tiny QEmacs %s - Press F1 for help", QE_VERSION);
+    put_status(s, "Tiny Evil QEmacs %s - Press F1 for help", QE_VERSION);
 #else
-    put_status(s, "QEmacs %s - Press F1 for help", QE_VERSION);
+    put_status(s, "Evil QEmacs %s - Press F1 for help", QE_VERSION);
     b = qe_find_buffer_name(qs, "*errors*");
     if (b != NULL) {
         show_popup(s, b, "Errors");

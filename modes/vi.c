@@ -54,6 +54,117 @@ static void vi_set_pending(EditState *s, int pending)
         put_status(s, "-- NORMAL --");
 }
 
+/* Search forward with wrap-around (vim-style wrapscan) */
+static void vi_search_forward(EditState *s, const char *str)
+{
+    int start = s->offset;
+    do_search_string(s, str, 1);
+    if (s->offset == start) {
+        /* no match after cursor; wrap to beginning of buffer */
+        do_bof(s);
+        do_search_string(s, str, 1);
+    }
+}
+
+/* Search backward with wrap-around (vim-style wrapscan) */
+static void vi_search_backward(EditState *s, const char *str)
+{
+    int start = s->offset;
+    do_search_string(s, str, -1);
+    if (s->offset == start) {
+        /* no match before cursor; wrap to end of buffer */
+        do_eof(s);
+        do_search_string(s, str, -1);
+    }
+}
+
+/* Perform a vi search and remember it for n/N repeats */
+static void vi_do_search(EditState *s, const char *str, int dir)
+{
+    if (!str || !*str)
+        return;
+    s->vi_search_dir = dir;
+    pstrcpy(s->vi_search_str, sizeof(s->vi_search_str), str);
+    if (dir == 1)
+        vi_search_forward(s, str);
+    else
+        vi_search_backward(s, str);
+}
+
+static void vi_search_callback(void *opaque, char *buf, CompletionDef *completion)
+{
+    EditState *s = opaque;
+    if (buf && *buf)
+        vi_do_search(s, buf, s->vi_search_dir);
+    qe_free(&buf);
+}
+
+/* Replace only the first occurrence of OLD with NEW in the buffer */
+static void vi_replace_first(EditState *s, const char *old, const char *new_)
+{
+    int end;
+    if (!old || !*old) {
+        put_error(s, "No search string");
+        return;
+    }
+    do_bof(s);
+    do_search_string(s, old, 1);  /* forward to end of first match */
+    end = s->offset;
+    if (end == 0) {
+        /* not found; do_search_string already printed an error */
+        return;
+    }
+    do_search_string(s, old, -1); /* backward to start of the same match */
+    eb_delete_range(s->b, s->offset, end);
+    eb_insert_str(s->b, s->offset, new_ ? new_ : "");
+}
+
+/* Parse :[range]s/old/new/[flags].  Only %s and s are supported. */
+static int vi_parse_substitute(EditState *s, const char *cmd)
+{
+    const char *p;
+    char delim;
+    char old[512], new_[512];
+    int global = 0;
+    int i;
+
+    p = cmd;
+    if (*p == '%')
+        p++;
+    if (*p != 's')
+        return -1;
+    p++;
+    delim = *p++;
+    if (!delim)
+        return -1;
+
+    i = 0;
+    while (*p && *p != delim && i < (int)sizeof(old) - 1)
+        old[i++] = *p++;
+    old[i] = '\0';
+    if (*p != delim)
+        return -1;
+    p++;
+
+    i = 0;
+    while (*p && *p != delim && i < (int)sizeof(new_) - 1)
+        new_[i++] = *p++;
+    new_[i] = '\0';
+    if (*p == delim)
+        p++;
+
+    if (*p == 'g')
+        global = 1;
+
+    if (global) {
+        do_bof(s);
+        do_replace_string(s, old, new_, 1);
+    } else {
+        vi_replace_first(s, old, new_);
+    }
+    return 0;
+}
+
 /* Ex command prompt callback */
 static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
 {
@@ -73,14 +184,28 @@ static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
     if (*p == ':')
         p++;
 
-    /* extract first word as command, remainder as argument */
-    i = 0;
-    while (*p && *p != ' ' && *p != '\t' && i < (int)sizeof(cmd) - 1)
-        cmd[i++] = *p++;
-    cmd[i] = '\0';
-    while (*p == ' ' || *p == '\t')
-        p++;
-    arg = p;
+    /* Substitute commands may contain spaces inside the old/new patterns,
+     * so when the command looks like a substitute, treat the whole remainder
+     * of the line as the command instead of splitting at the first space. */
+    if (((*p == '%' && p[1] == 's' && p[2] && !qe_isalnum((unsigned char)p[2])
+          && p[2] != ' ' && p[2] != '\t') ||
+         (*p == 's' && p[1] && !qe_isalnum((unsigned char)p[1])
+          && p[1] != ' ' && p[1] != '\t'))) {
+        i = 0;
+        while (*p && i < (int)sizeof(cmd) - 1)
+            cmd[i++] = *p++;
+        cmd[i] = '\0';
+        arg = "";
+    } else {
+        /* extract first word as command, remainder as argument */
+        i = 0;
+        while (*p && *p != ' ' && *p != '\t' && i < (int)sizeof(cmd) - 1)
+            cmd[i++] = *p++;
+        cmd[i] = '\0';
+        while (*p == ' ' || *p == '\t')
+            p++;
+        arg = p;
+    }
 
     if (strcmp(cmd, "q") == 0 || strcmp(cmd, "quit") == 0) {
         do_exit_qemacs(s, NO_ARG);
@@ -107,6 +232,10 @@ static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
         } else {
             put_status(s, "Unsupported set option: %s", arg);
         }
+    } else if (strstart(cmd, "%s", &arg) ||
+               (strstart(cmd, "s", &arg) && *arg == '/')) {
+        if (vi_parse_substitute(s, cmd) < 0)
+            put_status(s, "Invalid substitute command");
     } else if (cmd[0] >= '0' && cmd[0] <= '9') {
         /* :<number> goes to that line */
         do_goto_line(s, strtol(cmd, NULL, 10), 0);
@@ -281,6 +410,38 @@ static int vi_normal_key(EditState *s, int key)
         return 1;
     case '<':
         vi_set_pending(s, '<');
+        return 1;
+    case '/':
+        s->vi_pending = 0;
+        s->vi_search_dir = 1;
+        put_status(s, "-- NORMAL --");
+        minibuffer_edit(s, "", "/", NULL, NULL, vi_search_callback, s);
+        return 1;
+    case '?':
+        s->vi_pending = 0;
+        s->vi_search_dir = -1;
+        put_status(s, "-- NORMAL --");
+        minibuffer_edit(s, "", "?", NULL, NULL, vi_search_callback, s);
+        return 1;
+    case 'n':
+        if (s->vi_search_str[0]) {
+            if (s->vi_search_dir == 1)
+                vi_search_forward(s, s->vi_search_str);
+            else
+                vi_search_backward(s, s->vi_search_str);
+        } else {
+            put_status(s, "No previous search");
+        }
+        return 1;
+    case 'N':
+        if (s->vi_search_str[0]) {
+            if (s->vi_search_dir == 1)
+                vi_search_backward(s, s->vi_search_str);
+            else
+                vi_search_forward(s, s->vi_search_str);
+        } else {
+            put_status(s, "No previous search");
+        }
         return 1;
     case ':':
         s->vi_pending = 0;
