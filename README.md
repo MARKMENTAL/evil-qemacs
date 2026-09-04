@@ -1,81 +1,110 @@
-# Quick Emacs (QEmacs)
+# Evil QEmacs (`eqe`)
 
-Welcome to QEmacs! A small but powerful UNIX editor with many features
-that even big editors lack.
+A delightfully unhinged fork of Fabrice Bellard's QEmacs that hacks a native Vim modal state machine directly into a sub-megabyte C codebase.
 
-## Quick Description
+I don't expect anybody to actually use this. I made it because QEmacs is impossibly tiny, fast, and has incredible zero-copy buffer handling, but my muscle memory is 100% hardwired to modern Vim. Instead of doing the sane thing and using standard tools, I spent an afternoon along with various LLM models jamming a modal text editing engine into QEmacs' internal key dispatch loops.
 
-QEmacs is a small text editor targeted at embedded systems or debugging.
-Although it is very small, it has some very interesting features that
-even big editors lack:
+The implementation is messy, full of hacky C pointer arithmetic, and probably offends both Emacs purists and Vim devotees alike, but whatever, I like it (: 
 
-- Full screen editor with an Emacs look and feel with all common Emacs
-features: multi-buffer, multi-window, command mode, universal argument,
-keyboard macros, config file with C-like syntax, minibuffer with
-completion and history.
+**This is an alpha, in progress.** It compiles in seconds, boots in under 3ms, uses a couple of MB of RAM, and it just works, it lets you run a awesome hybrid vim/emacs setup on a potato — but it's also a moving target, and the roadmap below is honest about what's missing.
 
-- Can edit huge files (hundreds of megabytes) without delay, using a
-highly optimized internal representation and memory mapping for large
-files.
+---
 
-- Full Unicode support, including multi charset handling
-(8859-x, UTF8, SJIS, EUC-JP, ...) and bidirectional editing respecting
-the Unicode bidi algorithm. Arabic and Indic scripts handling (in
-progress). Automatic end of line detection.
+### What Actually Works
 
-- C mode: coloring with immediate update, auto-indent, automatic tags.
+* **Modal state machine:** Normal, Insert, Visual, and Visual Line modes wired directly into QEmacs window contexts, with live selection highlighting.
+* **Motions:** `h`/`j`/`k`/`l`, `w`/`b`, `0`/`^`/`$`, `G`, `gg` — plus `ESC`-cancellation of pending commands, because typing `d:q!` should do the right thing.
+* **Operators:** `x`/`xx`, `dd`, and the full Visual trio: `d`, `y`, `x` over any selection. `u` undoes.
+* **Registers with vim semantics:** `p` knows charwise from linewise. `dd` followed by `p` puts the line back below the cursor, `dd j p` appends it after the next line, and a charwise yank pastes after the cursor character, landing on the last pasted char. Visual `p` replaces the selection without clobbering the register being pasted.
+* **Search:** `/` forward, `?` backward, `n`/`N` to repeat, with vim-style `wrapscan` so searches wrap around the buffer instead of silently giving up.
+* **Substitute:** `:%s/old/new/[g]` and `:s/old/new/`, including patterns and replacements that contain spaces.
+* **Indenting:** `>>` and `<<` with `:set sw=N`.
+* **Ex command line:** `:w [file]`, `:q`, `:q!`, `:wq`, `:x`, `:<N>` (goto line), `:set sw=N`, `:%s/.../.../[g]`.
+* **Terminal theme auto-detect:** queries your terminal's foreground/background via OSC 10/11 at startup and adopts the palette, falling back to peach-on-black if the terminal doesn't answer.
 
-- Shell mode: full color VT100 terminal emulation so your shell works
-exactly as you expect. Compile mode with colorized error messages,
-automatic error message parser jumps to next/previous error, works
-with grep too. The shell buffer is a fully functional terminal: you
-can run qemacs, vim or even emacs recursively!
+### Not Yet (the roadmap)
 
-- Input methods for most languages, including Chinese (input methods
-descriptions come from the Yudit editor).
+* Numeric counts (`5dd`, `3w`), the `e` motion, the `c` operator, operator+motion combos (`dw`, `d$`), and text objects.
+* `:e`, splits (`:sp`/`:vsp`), buffer cycling.
+* Vi navigation in hex mode (wandering firmware images with `hjkl` and `r`-replacing bytes is the dream).
+* Vim-aligned `w`/`b` word semantics (currently `w` stops at the end of the word, not the start of the next one).
+* Visual block (`Ctrl+v`).
 
-- Binary and hexadecimal in place editing mode with insertion and
-block commands. Unicode hexa editing of UTF-8 files also supported.
-Can patch binary files, preserving every byte outside the modified
-areas.
+---
 
-- Works on any VT100 terminal without termcap. UTF-8 VT100 support
-included with double width glyphs.
+### The Numbers
 
-- X11 support. Supports multiple proportional fonts at the same time
-(like XEmacs). X Input methods supported. Xft extension supported for
-anti-aliased font display.
+Measured on x86-64 (Debian, gcc-14/clang-19, this repo's default `clang` config). Your mileage may vary, but probably not by much:
 
-- Bitmap images are displayed on graphics displays and as colored text
-on text terminals, which is handy when browsing files over an ssh connection.
-(QEmacs uses the public domain [`stb_image`](https://github.com/nothings/stb/blob/master/stb_image.h)
-package for image parsing.
+| | `teqe` (tiny) | `eqe` (full) |
+|---|---|---|
+| binary size, x86-64 stripped | 319 KB | 1.38 MB |
+| binary size, ARM static (Miyoo) | 838 KB | 1.55 MB |
+| boot to first frame (pty, median of 15) | 1.6 ms | 2.0 ms |
+| resident RAM while idle (VmRSS) | 2.2 MB | 3.3 MB |
+| peak memory (VmPeak) | 3.8 MB | 4.9 MB |
+| clean compile | 2.7 s | 12.5 s |
 
-## Building QEmacs
+---
 
-* Launch the custom configuration script `./configure`. You can list the
-available options by typing `./configure --help`.
+### Native Build (x86_64 / amd64)
 
-* Type `make` to compile qemacs and its associated tools.
+Requires nothing but a standard C toolchain and libc:
 
-* Type `make install` as root to install it in **/usr/local**.
+```bash
+./configure
+make
+sudo make install
+```
 
-## QEmacs Documentation
+This builds two terminal binaries:
 
-Read the file [qe-doc.html](qe-doc.html).
+* **`eqe`** — the full build (all modes, scripting, languages, docs).
+* **`teqe`** — the tiny build (`CONFIG_TINY`, `-Os`): the one that fits on a handheld.
 
-## Licensing
+Old muscle memory still works: `make qe` and `make tqe` are aliases for `eqe` and `teqe`. `make install` installs the binary as `qemacs` with `eqe` and `qe` symlinks.
 
-QEmacs is released under the MIT license.
-(read the accompanying [LICENSE](LICENSE) file).
+---
 
-## Contributing to QEmacs
+### Miyoo Mini Plus (armv7l)
 
-QEmacs official repository is available on [Github](https://github.com/qemacs/qemacs).
-You are welcome to contribute by opening an issue or submitting a Pull Request. Older discussions are archived on the  [qemacs-devel](https://lists.nongnu.org/mailman/listinfo/qemacs-devel) mailing list.
+The whole point. The Miyoo ships an old glibc, so the binaries are cross-compiled **statically linked** — one file, no libc drama on device:
 
-## Authors
+```bash
+./armv7l-build.sh teqe    # tiny build (838 KB static ARM)
+./armv7l-build.sh eqe     # full build (1.55 MB static ARM)
+```
 
-QEmacs was started in 2000. The initial version was developped by
-Fabrice Bellard and Charlie Gordon, who since then, has been maintaining
-and extending it.
+Requires the `gcc-arm-linux-gnueabihf` cross toolchain (`apt install gcc-arm-linux-gnueabihf`).
+
+You will see linker warnings like:
+
+```
+warning: Using 'getpwent' in statically linked applications requires
+at runtime the shared libraries from the glibc version used for linking
+```
+
+These come from glibc's NSS-based user lookups (`getpwent`/`getpwnam` in the home-directory code) and are benign for this use — the binary runs fine on the device. Ignore them.
+
+Then copy the binary over and run it (`scp teqe mini:/media/sdcard/`, or however you shuffle files onto yours). Vi mode is on by default: normal mode at startup, `i` to insert, `ESC` to get back.
+
+---
+
+### Testing
+
+There's a real test suite, because "trust me bro it works on my machines" is not a regression strategy:
+
+```bash
+make test
+```
+
+61 pty-driven tests drive the actual binary through a virtual terminal — motions, pending commands, search wrap, substitute, visual yank/delete/put, register types, ex commands, even status-line contents. The harness answers the terminal's OSC color queries and reconstructs the screen, so tests are deterministic. See [tests/test_vi.py](tests/test_vi.py) for the catalog (`--list`, name/category filters, `--binary`).
+
+---
+
+### Heritage
+
+Everything upstream QEmacs does still works underneath: huge-file editing via mmap, full Unicode with bidi and Indic/Arabic scripts, in-place hex editing, shell/compile mode with a real VT100 terminal, X11 build (`xqe`), and more. Read the upstream manual at [qe-doc.html](qe-doc.html) for the Emacs half of the family tree.
+
+QEmacs is MIT licensed — see the [LICENSE](LICENSE) file — and was started in 2000 by Fabrice Bellard and Charlie Gordon. All the modal crimes here are mine. Upstream lives at [github.com/qemacs/qemacs](https://github.com/qemacs/qemacs).
+

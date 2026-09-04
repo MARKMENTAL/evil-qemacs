@@ -11497,15 +11497,16 @@ void qe_register_cmd_line_options(QEmacsState *qs, CmdLineOptionDef *table)
 
 /******************************************************/
 
-const char str_version[] = "QEmacs version " QE_VERSION;
+const char str_version[] = "Evil QEmacs version " QE_VERSION;
 const char str_credits[] = "Copyright (c) 2000-2003 Fabrice Bellard\n"
+                           "Copyright (c) 2026 Mark Robillard Jr (MARKMENTAL)\n"
                            "Copyright (c) 2000-2026 Charlie Gordon\n";
 
 static void show_version(void)
 {
     printf("%s\n%s\n"
-           "QEmacs comes with ABSOLUTELY NO WARRANTY.\n"
-           "You may redistribute copies of QEmacs\n"
+           "Evil QEmacs comes with ABSOLUTELY NO WARRANTY.\n"
+           "You may redistribute copies of Evil QEmacs\n"
            "under the terms of the MIT license.\n",
            str_version, str_credits);
     exit(1);
@@ -11543,7 +11544,7 @@ static void show_usage(void)
         }
     }
     printf("\n"
-           "Report bugs to bug@qemacs.org.  First, please see the Bugs\n"
+           "Report bugs to bug@qemacs.org, or marky611@gmail.com if you think it has to do with the evil QEmacs vim layer.  First, please see the Bugs\n"
            "section of the QEmacs manual.\n");
     exit(1);
 }

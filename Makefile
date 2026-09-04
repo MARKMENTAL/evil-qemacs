@@ -133,10 +133,10 @@ ifeq (,$(TARGET))
 
 TARGETS :=
 ifndef CONFIG_TINY_ONLY
-  TARGETS += qe
+  TARGETS += eqe
 endif
 ifdef CONFIG_TINY
-  TARGETS += tqe
+  TARGETS += teqe
 endif
 ifdef CONFIG_X11
   TARGETS += xqe
@@ -149,16 +149,29 @@ TARGET_OBJ := other
 all: $(TARGETS)
 
 # targets that require recursion
-qe:		force;	$(MAKE) TARGET=qe
+# (internal TARGET names qe/tqe are kept for the object directories;
+#  the user-facing binaries are eqe = full build, teqe = tiny build)
+eqe:		force;	$(MAKE) TARGET=qe
 xqe:		force;	$(MAKE) TARGET=xqe TARGET_OBJ=qe TARGET_X11=1
-tqe:		force;	$(MAKE) TARGET=tqe TARGET_TINY=1
-tqe1:		force;	$(MAKE) TARGET=tqe TARGET_TINY=1 tqe1$(EXE)
-asan qe_asan:	force;	$(MAKE) TARGET=qe ASAN=1
-msan qe_msan:	force;	$(MAKE) TARGET=qe MSAN=1
-ubsan qe_ubsan:	force;	$(MAKE) TARGET=qe UBSAN=1
-debug qe_debug:	force;	$(MAKE) TARGET=qe DEBUG=1
+teqe:		force;	$(MAKE) TARGET=tqe TARGET_TINY=1
+teqe1:		force;	$(MAKE) TARGET=tqe TARGET_TINY=1 teqe1$(EXE)
+# legacy aliases for muscle memory
+# (.PHONY prevents make from grafting the implicit %: %.c rule, which
+#  would compile qe.c standalone and fail at link time)
+.PHONY: qe tqe tqe1 asan msan ubsan debug
+qe:		eqe
+tqe:		teqe
+tqe1:		teqe1
+asan:		eqe_asan
+msan:		eqe_msan
+ubsan:		eqe_ubsan
+debug:		eqe_debug
+eqe_asan:	force;	$(MAKE) TARGET=qe ASAN=1
+eqe_msan:	force;	$(MAKE) TARGET=qe MSAN=1
+eqe_ubsan:	force;	$(MAKE) TARGET=qe UBSAN=1
+eqe_debug:	force;	$(MAKE) TARGET=qe DEBUG=1
 xqe_debug:	force;	$(MAKE) TARGET=xqe TARGET_OBJ=qe TARGET_X11=1 DEBUG=1
-tqe_debug:	force;	$(MAKE) TARGET=tqe TARGET_TINY=1 DEBUG=1
+teqe_debug:	force;	$(MAKE) TARGET=tqe TARGET_TINY=1 DEBUG=1
 qe-manual.md:   force;  $(MAKE) TARGET=qe qe-manual.md
 
 else
@@ -316,23 +329,36 @@ CFLAGS+= -I$(OBJS_DIR)
 OBJS:= $(addprefix $(OBJS_DIR)/, $(OBJS))
 OBJS+= $(OBJS_DIR)/$(TARGET)_modules.o
 
-all: $(TARGETLIBS) $(TARGET)$(DEBUG_SUFFIX)$(EXE) $(TARGETS)
+# User-facing binary names for the Evil QEmacs fork:
+#   TARGET=qe  -> eqe   (full build)
+#   TARGET=tqe -> teqe  (tiny build)
+ifeq (qe,$(TARGET))
+BIN:=eqe
+endif
+ifeq (tqe,$(TARGET))
+BIN:=teqe
+endif
+ifeq (,$(BIN))
+BIN:=$(TARGET)
+endif
+
+all: $(TARGETLIBS) $(BIN)$(DEBUG_SUFFIX)$(EXE) $(TARGETS)
 
 ifneq (,$(DEBUG_SUFFIX))
-$(TARGET)$(DEBUG_SUFFIX)$(EXE): $(OBJS) $(DEP_LIBS)
+$(BIN)$(DEBUG_SUFFIX)$(EXE): $(OBJS) $(DEP_LIBS)
 	$(echo) LD $@
 	$(cmd)  $(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 else
-$(TARGET)_g$(EXE): $(OBJS) $(DEP_LIBS)
+$(BIN)_g$(EXE): $(OBJS) $(DEP_LIBS)
 	$(echo) LD $@
 	$(cmd)  $(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-$(TARGET)$(EXE): $(TARGET)_g$(EXE) Makefile
+$(BIN)$(EXE): $(BIN)_g$(EXE) Makefile
 	@rm -f $@
 	cp $< $@
 	-$(STRIP) $@
 	@ls -l $@
-	@echo `$(SIZE) $@` `wc -c $@` $(TARGET) $(OPTIONS) \
+	@echo `$(SIZE) $@` `wc -c $@` $(BIN) $(OPTIONS) \
 		| cut -d ' ' -f 7-10,13,15-40 >> STATS
 endif
 
@@ -342,21 +368,21 @@ TSRCS:=qe.c cutils.c util.c color.c charset.c buffer.c search.c input.c display.
        modes/hex.c parser.c unix.c tty.c win32.c qeend.c
 TSRCS+= $(OBJS_DIR)/tqe_modules.c
 
-tqe1_g$(EXE): tqe.c $(TSRCS) Makefile
+teqe1_g$(EXE): tqe.c $(TSRCS) Makefile
 	$(echo) CC $(ECHO_CFLAGS) -o $@ $<
 	$(cmd)  $(CC) $(DEFINES) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LIBS)
 
-tqe1$(EXE): tqe1_g$(EXE) Makefile
+teqe1$(EXE): teqe1_g$(EXE) Makefile
 	@rm -f $@
 	cp $< $@
 	-$(STRIP) $@
 	@ls -l $@
-	@echo `$(SIZE) $@` `wc -c $@` tqe1 $(OPTIONS) \
+	@echo `$(SIZE) $@` `wc -c $@` teqe1 $(OPTIONS) \
 		| cut -d ' ' -f 7-10,13,15-40 >> STATS
 endif
 
 ifdef CONFIG_FFMPEG
-ffplay$(EXE): qe$(EXE) Makefile
+ffplay$(EXE): eqe$(EXE) Makefile
 	ln -sf $< $@
 endif
 
@@ -603,9 +629,9 @@ clean:
 	rm -f qe-doc.aux qe-doc.info qe-doc.log qe-doc.pdf qe-doc.toc
 	rm -rf *.dSYM *.gch .objs* .tobjs* .xobjs* bin
 	rm -f *~ *.o *.a *.exe *_g *_debug TAGS gmon.out core *.exe.stackdump \
-           qe tqe tqe1 xqe kmaptoqe ligtoqe html2png cptoqe jistoqe \
+           qe tqe tqe1 eqe teqe teqe1 xqe kmaptoqe ligtoqe html2png cptoqe jistoqe \
            fbftoqe fbffonts.c allmodules.txt basemodules.txt '.#'*[0-9] \
-           *qe_asan *qe_msan *qe_ubsan
+           *qe_asan *qe_msan *qe_ubsan *eqe_asan *eqe_msan *eqe_ubsan
 
 distclean: clean
 	$(MAKE) -C libqhtml distclean
@@ -619,11 +645,12 @@ ifdef CONFIG_X11
 	$(INSTALL) -m 755 -s xqe$(EXE) $(DESTDIR)$(prefix)/bin/qemacs$(EXE)
 else
   ifdef CONFIG_TINY_ONLY
-	$(INSTALL) -m 755 -s tqe$(EXE) $(DESTDIR)$(prefix)/bin/qemacs$(EXE)
+	$(INSTALL) -m 755 -s teqe$(EXE) $(DESTDIR)$(prefix)/bin/qemacs$(EXE)
   else
-	$(INSTALL) -m 755 -s qe$(EXE) $(DESTDIR)$(prefix)/bin/qemacs$(EXE)
+	$(INSTALL) -m 755 -s eqe$(EXE) $(DESTDIR)$(prefix)/bin/qemacs$(EXE)
   endif
 endif
+	ln -sf qemacs$(EXE) $(DESTDIR)$(prefix)/bin/eqe$(EXE)
 	ln -sf qemacs$(EXE) $(DESTDIR)$(prefix)/bin/qe$(EXE)
 ifdef CONFIG_FFMPEG
 	ln -sf qemacs$(EXE) $(DESTDIR)$(prefix)/bin/ffplay$(EXE)
@@ -636,6 +663,8 @@ endif
 
 uninstall:
 	rm -f $(DESTDIR)$(prefix)/bin/qemacs$(EXE)   \
+	      $(DESTDIR)$(prefix)/bin/eqe$(EXE)      \
+	      $(DESTDIR)$(prefix)/bin/teqe$(EXE)     \
 	      $(DESTDIR)$(prefix)/bin/qe$(EXE)       \
 	      $(DESTDIR)$(prefix)/bin/tqe$(EXE)      \
 	      $(DESTDIR)$(prefix)/bin/xqe$(EXE)      \
@@ -668,10 +697,10 @@ help:
 	@echo "Usage: make [targets] [BUILD_ALL=1] [DEBUG=1] [VERBOSE=1]"
 	@echo "targets:"
 	@echo "  all [default]: build the distribution files for all configured versions"
-	@echo "  qe: build the terminal version qe"
+	@echo "  eqe: build the full terminal version eqe (alias: qe)"
 	@echo "  xqe: build the X11 version xqe"
-	@echo "  tqe: build the tiny version tqe"
-	@echo "  debug: build an unoptimized debug version of qe named qe_debug"
+	@echo "  teqe: build the tiny version teqe (alias: tqe)"
+	@echo "  debug: build an unoptimized debug version of eqe named eqe_debug"
 	@echo "  xxx_debug: build an unoptimized debug version of the xxx target"
 	@echo "flags:"
 	@echo "  BUILD_ALL=1  rebuild some distribution files: ligatures kmaps charsets"

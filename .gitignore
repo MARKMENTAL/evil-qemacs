@@ -19,7 +19,9 @@ bin
 *_ubsan
 html2png
 qe
+eqe
 tqe
+teqe
 tqe1
 xqe
 # temp-directories
@@ -50,3 +52,6 @@ STATS
 TAGS
 .qerc
 cflags.mk
+
+# DONT COMMIT YOUR PYCACHE!
+*__pycache__*
