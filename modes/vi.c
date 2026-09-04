@@ -10,6 +10,12 @@
 
 extern void do_indent_rigidly_to_tab_stop(EditState *s, int start, int end, int dir);
 
+/* Track whether each yank-ring slot holds linewise text, so that `p`
+ * can paste whole lines below the current line like vim.  qemacs kill
+ * registers carry no type information, so vi keeps its own map keyed
+ * by qs->yank_current (updated by every do_kill). */
+static int vi_yank_linewise[NB_YANK_BUFFERS];
+
 /* Some terminals encode shifted keys as KEY_SHIFT(c) instead of the ASCII
  * character.  Map those back to the ASCII a user expects for vi commands. */
 static int vi_normalize_key(int key)
@@ -52,6 +58,184 @@ static void vi_set_pending(EditState *s, int pending)
         put_status(s, "-- NORMAL -- %c-", pending);
     else
         put_status(s, "-- NORMAL --");
+}
+
+/* ---- Visual mode helpers ---- */
+
+/* Extend END past a newline character at END (used for linewise ops so
+ * whole lines including their trailing newline are grabbed). */
+static int vi_include_newline(EditBuffer *b, int end)
+{
+    int ch, next;
+    if (end >= b->total_size)
+        return end;
+    ch = eb_nextc(b, end, &next);
+    if (ch == '\n')
+        end = next;
+    return end;
+}
+
+/* Extend END to include the character under the cursor (vim charwise
+ * selection is inclusive) unless that character is a newline. */
+static int vi_include_cursor_char(EditBuffer *b, int end)
+{
+    int ch, next;
+    if (end >= b->total_size)
+        return end;
+    ch = eb_nextc(b, end, &next);
+    if (ch != '\n')
+        end = next;
+    return end;
+}
+
+/* Compute the visual region from the anchor (vi_visual_start) and the
+ * cursor (s->offset).  Charwise selections include the character under
+ * the cursor on the moving side; linewise selections cover whole lines
+ * including the trailing newline of the last line. */
+static void vi_visual_region(EditState *s, int *p1, int *p2)
+{
+    int a = s->vi_visual_start;
+    int c = s->offset;
+    int save, tmp;
+    if (a > c) { tmp = a; a = c; c = tmp; }
+    if (s->vi_visual_linewise) {
+        save = s->offset;
+        s->offset = a; do_bol(s); a = s->offset;
+        s->offset = save; do_eol(s); c = s->offset;
+        s->offset = save;
+        c = vi_include_newline(s->b, c);
+    } else {
+        if (s->offset >= s->vi_visual_start) {
+            a = s->vi_visual_start;
+            c = vi_include_cursor_char(s->b, s->offset);
+        } else {
+            a = s->offset;
+            c = vi_include_cursor_char(s->b, s->vi_visual_start);
+        }
+    }
+    *p1 = a;
+    *p2 = c;
+}
+
+/* Update the visual selection highlight after a motion.
+ * The cursor (s->offset) is the moving end of the selection; only the
+ * mark is adjusted so motions keep their natural arithmetic and the
+ * yank/delete region can always be recomputed from anchor + cursor.
+ * Linewise snaps the cursor to EOL of the last selected line. */
+static void vi_visual_update(EditState *s)
+{
+    int a = s->vi_visual_start;
+    int c = s->offset;
+    int save, tmp;
+    if (a > c) { tmp = a; a = c; c = tmp; }
+    if (s->vi_visual_linewise) {
+        save = s->offset;
+        s->offset = a; do_bol(s); a = s->offset;
+        s->offset = save; do_eol(s); c = s->offset;
+        s->b->mark = a;
+        s->offset = c;
+    } else {
+        s->b->mark = a;
+    }
+    s->region_style = QE_STYLE_REGION_HILITE;
+}
+
+/* Begin visual mode. linewise: 0=char, 1=line. */
+static void vi_visual_begin(EditState *s, int linewise)
+{
+    s->vi_visual_active = 1;
+    s->vi_visual_linewise = linewise;
+    s->vi_visual_start = s->offset;
+    s->region_style = QE_STYLE_REGION_HILITE;
+    put_status(s, linewise ? "-- VISUAL LINE --" : "-- VISUAL --");
+    vi_visual_update(s);
+}
+
+/* End visual mode. */
+static void vi_visual_end(EditState *s)
+{
+    s->vi_visual_active = 0;
+    s->vi_visual_linewise = 0;
+    s->region_style = 0;
+    put_status(s, "-- NORMAL --");
+}
+
+/* Toggle visual mode. linewise: 0=char, 1=line. */
+static void vi_visual_toggle(EditState *s, int linewise)
+{
+    if (s->vi_visual_active) {
+        vi_visual_end(s);
+    } else {
+        vi_visual_begin(s, linewise);
+    }
+}
+
+/* Yank the visual region and exit. */
+static void vi_visual_yank(EditState *s)
+{
+    int p1, p2;
+    int linewise = s->vi_visual_linewise;
+    vi_visual_region(s, &p1, &p2);
+    do_kill(s, p1, p2, 0, 1);
+    vi_yank_linewise[s->qs->yank_current] = linewise;
+    s->qs->last_cmd_func = NULL;
+    vi_visual_end(s);
+}
+
+/* Delete the visual region and exit. */
+static void vi_visual_delete(EditState *s)
+{
+    int p1, p2;
+    int linewise = s->vi_visual_linewise;
+    vi_visual_region(s, &p1, &p2);
+    do_kill(s, p1, p2, 1, 0);
+    vi_yank_linewise[s->qs->yank_current] = linewise;
+    s->qs->last_cmd_func = NULL;
+    vi_visual_end(s);
+}
+
+/* Put the yanked text, replacing the visual region, then exit.
+ * The region is removed directly (not via do_kill) so the yank
+ * register that is being pasted is not overwritten. */
+static void vi_visual_put(EditState *s)
+{
+    QEmacsState *qs = s->qs;
+    int p1, p2, size;
+    EditBuffer *yb;
+
+    if (s->b->flags & BF_READONLY) {
+        put_status(s, "Buffer is read-only");
+        return;
+    }
+    yb = qs->yank_buffers[qs->yank_current];
+    size = yb ? yb->total_size : 0;
+    if (size <= 0) {
+        put_status(s, "Nothing to put");
+        return;
+    }
+    vi_visual_region(s, &p1, &p2);
+    if (p1 != p2) {
+        if (s->mode->delete_bytes)
+            s->mode->delete_bytes(s, p1, p2 - p1);
+        else
+            eb_delete_range(s->b, p1, p2);
+        s->offset = p1;
+    } else if (s->vi_visual_linewise) {
+        /* empty linewise selection: paste on a new line below */
+        do_eol(s);
+        do_char(s, '\n', 1);
+    }
+    s->b->last_log = LOGOP_FREE;
+    s->offset += eb_insert_buffer_convert(s->b, s->offset, yb, 0, size);
+    if (s->vi_visual_linewise) {
+        /* a charwise register pasted linewise still needs its newline */
+        int pch, pnext;
+        pch = eb_nextc(s->b, eb_prev(s->b, s->offset), &pnext);
+        if (pch != '\n') {
+            s->offset += eb_insert_str(s->b, s->offset, "\n");
+        }
+    }
+    vi_visual_end(s);
 }
 
 /* Search forward with wrap-around (vim-style wrapscan) */
@@ -285,71 +469,79 @@ static int vi_normal_key(EditState *s, int key)
     if (s->vi_pending == 'd') {
         if (key == 'd') {
             do_kill_whole_line(s, 1);
+            vi_yank_linewise[s->qs->yank_current] = 1;
         } else if (key == ':' || key == 'i' || key == 'a' ||
-                   key == 'o' || key == 'O') {
-            vi_set_pending(s, 0);
-            return vi_normal_key(s, key);
-        } else {
-            put_status(s, "Unknown d command");
-        }
-        vi_set_pending(s, 0);
-        return 1;
-    }
-    if (s->vi_pending == 'g') {
-        if (key == 'g') {
-            do_bof(s);
-        } else if (key == 'G') {
-            do_eof(s);
-        } else if (key == ':' || key == 'i' || key == 'a' ||
-                   key == 'o' || key == 'O') {
-            vi_set_pending(s, 0);
-            return vi_normal_key(s, key);
-        } else {
-            put_status(s, "Unknown g command");
-        }
-        vi_set_pending(s, 0);
-        return 1;
-    }
-    if (s->vi_pending == '>') {
-        if (key == '>') {
-            do_indent_rigidly_to_tab_stop(s, s->offset, s->offset, +1);
-        } else if (key == ':' || key == 'i' || key == 'a' ||
-                   key == 'o' || key == 'O') {
-            vi_set_pending(s, 0);
-            return vi_normal_key(s, key);
-        } else {
-            put_status(s, "Unknown > command");
-        }
-        vi_set_pending(s, 0);
-        return 1;
-    }
-    if (s->vi_pending == '<') {
-        if (key == '<') {
-            do_indent_rigidly_to_tab_stop(s, s->offset, s->offset, -1);
-        } else if (key == ':' || key == 'i' || key == 'a' ||
-                   key == 'o' || key == 'O') {
-            vi_set_pending(s, 0);
-            return vi_normal_key(s, key);
-        } else {
-            put_status(s, "Unknown < command");
-        }
-        vi_set_pending(s, 0);
-        return 1;
-    }
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'y' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown d command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
+     if (s->vi_pending == 'g') {
+         if (key == 'g') {
+             do_bof(s);
+         } else if (key == 'G') {
+             do_eof(s);
+         } else if (key == ':' || key == 'i' || key == 'a' ||
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'y' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown g command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
+     if (s->vi_pending == '>') {
+         if (key == '>') {
+             do_indent_rigidly_to_tab_stop(s, s->offset, s->offset, +1);
+         } else if (key == ':' || key == 'i' || key == 'a' ||
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'y' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown > command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
+     if (s->vi_pending == '<') {
+         if (key == '<') {
+             do_indent_rigidly_to_tab_stop(s, s->offset, s->offset, -1);
+         } else if (key == ':' || key == 'i' || key == 'a' ||
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'y' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown < command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
 
     switch (key) {
     case 'i':
+        if (s->vi_visual_active) vi_visual_end(s);
         s->flags &= ~WF_VI_NORMAL;
         s->vi_pending = 0;
         put_status(s, "-- INSERT --");
         return 1;
     case 'a':
+        if (s->vi_visual_active) vi_visual_end(s);
         do_left_right(s, 1);
         s->flags &= ~WF_VI_NORMAL;
         s->vi_pending = 0;
         put_status(s, "-- INSERT --");
         return 1;
     case 'o':
+        if (s->vi_visual_active) vi_visual_end(s);
         do_eol(s);
         do_char(s, '\n', 1);
         s->flags &= ~WF_VI_NORMAL;
@@ -357,50 +549,62 @@ static int vi_normal_key(EditState *s, int key)
         put_status(s, "-- INSERT --");
         return 1;
     case 'O':
+        if (s->vi_visual_active) vi_visual_end(s);
         do_bol(s);
         do_open_line(s);
         s->flags &= ~WF_VI_NORMAL;
         s->vi_pending = 0;
         put_status(s, "-- INSERT --");
         return 1;
-    case 'h':
-        do_left_right(s, -1);
-        return 1;
-    case 'j':
-        do_up_down(s, 1);
-        return 1;
-    case 'k':
-        do_up_down(s, -1);
-        return 1;
-    case 'l':
-        do_left_right(s, 1);
-        return 1;
-    case 'w':
-        do_word_left_right(s, 1);
-        return 1;
-    case 'b':
-        do_word_left_right(s, -1);
-        return 1;
-    case '0':
-        do_bol(s);
-        return 1;
-    case '^':
-        do_bol_nspace(s);
-        return 1;
-    case '$':
-        do_eol(s);
-        return 1;
-    case 'G':
-        do_eof(s);
-        return 1;
+     case 'h':
+         do_left_right(s, -1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'j':
+         do_up_down(s, 1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'k':
+         do_up_down(s, -1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'l':
+         do_left_right(s, 1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'w':
+         do_word_left_right(s, 1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'b':
+         do_word_left_right(s, -1);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case '0':
+         do_bol(s);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case '^':
+         do_bol_nspace(s);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case '$':
+         do_eol(s);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
+     case 'G':
+         do_eof(s);
+         if (s->vi_visual_active) vi_visual_update(s);
+         return 1;
     case 'x':
+        if (s->vi_visual_active) {
+            vi_visual_delete(s);
+            return 1;
+        }
         do_delete_char(s, 1);
         return 1;
     case 'u':
         do_undo(s);
-        return 1;
-    case 'd':
-        vi_set_pending(s, 'd');
         return 1;
     case 'g':
         vi_set_pending(s, 'g');
@@ -411,44 +615,84 @@ static int vi_normal_key(EditState *s, int key)
     case '<':
         vi_set_pending(s, '<');
         return 1;
-    case '/':
-        s->vi_pending = 0;
-        s->vi_search_dir = 1;
-        put_status(s, "-- NORMAL --");
-        minibuffer_edit(s, "", "/", NULL, NULL, vi_search_callback, s);
-        return 1;
-    case '?':
-        s->vi_pending = 0;
-        s->vi_search_dir = -1;
-        put_status(s, "-- NORMAL --");
-        minibuffer_edit(s, "", "?", NULL, NULL, vi_search_callback, s);
-        return 1;
-    case 'n':
-        if (s->vi_search_str[0]) {
-            if (s->vi_search_dir == 1)
-                vi_search_forward(s, s->vi_search_str);
-            else
-                vi_search_backward(s, s->vi_search_str);
+     case '/':
+         s->vi_pending = 0;
+         s->vi_search_dir = 1;
+         put_status(s, "-- NORMAL --");
+         minibuffer_edit(s, "", "/", NULL, NULL, vi_search_callback, s);
+         return 1;
+     case '?':
+         s->vi_pending = 0;
+         s->vi_search_dir = -1;
+         put_status(s, "-- NORMAL --");
+         minibuffer_edit(s, "", "?", NULL, NULL, vi_search_callback, s);
+         return 1;
+     case 'n':
+         if (s->vi_search_str[0]) {
+             if (s->vi_search_dir == 1)
+                 vi_search_forward(s, s->vi_search_str);
+             else
+                 vi_search_backward(s, s->vi_search_str);
+         } else {
+             put_status(s, "No previous search");
+         }
+         return 1;
+     case 'N':
+         if (s->vi_search_str[0]) {
+             if (s->vi_search_dir == 1)
+                 vi_search_backward(s, s->vi_search_str);
+             else
+                 vi_search_forward(s, s->vi_search_str);
+         } else {
+             put_status(s, "No previous search");
+         }
+         return 1;
+    case 'p':
+        if (s->vi_visual_active) {
+            vi_visual_put(s);
+        } else if (vi_yank_linewise[s->qs->yank_current]) {
+            /* linewise register: paste whole lines below the current line */
+            do_eol(s);
+            if (s->offset < s->b->total_size)
+                s->offset = eb_next(s->b, s->offset);
+            do_yank(s);
         } else {
-            put_status(s, "No previous search");
+            /* charwise register: paste after the character under the
+             * cursor (before the newline at EOL), cursor on last char */
+            int ch, next;
+            ch = eb_nextc(s->b, s->offset, &next);
+            if (ch != '\n')
+                s->offset = next;
+            do_yank(s);
+            if (s->offset > 0)
+                s->offset = eb_prev(s->b, s->offset);
         }
         return 1;
-    case 'N':
-        if (s->vi_search_str[0]) {
-            if (s->vi_search_dir == 1)
-                vi_search_backward(s, s->vi_search_str);
-            else
-                vi_search_forward(s, s->vi_search_str);
-        } else {
-            put_status(s, "No previous search");
-        }
-        return 1;
-    case ':':
-        s->vi_pending = 0;
-        put_status(s, "-- NORMAL --");
-        minibuffer_edit(s, "", ":", NULL, NULL, vi_ex_callback, s);
-        return 1;
-    default:
+     case 'v':
+         vi_visual_toggle(s, 0);
+         return 1;
+     case 'V':
+         vi_visual_toggle(s, 1);
+         return 1;
+     case 'y':
+         if (s->vi_visual_active)
+             vi_visual_yank(s);
+         else
+             put_status(s, "Use v/V then y to yank");
+         return 1;
+     case 'd':
+         if (s->vi_visual_active) {
+             vi_visual_delete(s);
+         } else {
+             vi_set_pending(s, 'd');
+         }
+         return 1;
+     case ':':
+         s->vi_pending = 0;
+         put_status(s, "-- NORMAL --");
+         minibuffer_edit(s, "", ":", NULL, NULL, vi_ex_callback, s);
+         return 1;
+     default:
         /* Swallow unknown printable ASCII so it doesn't self-insert */
         if (key >= ' ' && key <= '~')
             return 1;
@@ -485,16 +729,24 @@ int vi_handle_key(EditState *s, int key)
         return 0;
     }
 
-    /* Normal mode: ESC / C-[ is a cancel/no-op. META keys are treated as
-     * ESC followed by the base key, so ESC-h and similar chords work even
-     * when the terminal layer composes them. */
+     /* Normal mode: ESC / C-[ is a cancel/no-op. META keys are treated as
+      * ESC followed by the base key, so ESC-h and similar chords work even
+      * when the terminal layer composes them. */
     if (key == KEY_ESC || key == 27 || key == KEY_CTRL('[')) {
-        vi_set_pending(s, 0);
+        if (s->vi_visual_active)
+            vi_visual_end(s);
+        else
+            vi_set_pending(s, 0);
         return 1;
     }
     if (KEY_IS_META(key)) {
-        vi_set_pending(s, 0);
-        vi_normal_key(s, key & 0xFF);
+        if (s->vi_visual_active) {
+            vi_visual_end(s);
+            vi_normal_key(s, key & 0xFF);
+        } else {
+            vi_set_pending(s, 0);
+            vi_normal_key(s, key & 0xFF);
+        }
         return 1;
     }
 

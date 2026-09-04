@@ -759,10 +759,15 @@ struct EditState {
     /* after this limit, the fields are not saved into the buffer */
     int end_of_saved_data;
 
-    int vi_search_dir;      /* last vi search direction: 1 forward, -1 backward */
-    char vi_search_str[256]; /* last vi search pattern */
+     int vi_search_dir;      /* last vi search direction: 1 forward, -1 backward */
+     char vi_search_str[256]; /* last vi search pattern */
 
-    EditBuffer *b;
+     /* Visual mode state (runtime only, not saved) */
+     int vi_visual_active;   /* true when in visual mode */
+     int vi_visual_linewise; /* 0=normal, 1=linewise (V) */
+     int vi_visual_start;    /* offset where visual mode started */
+
+     EditBuffer *b;
 
     EditBuffer *last_buffer;    /* for predict_switch_to_buffer */
     ISearchState *isearch_state;  /* active search to colorize matches */
