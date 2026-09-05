@@ -20,7 +20,7 @@ The implementation is messy, full of hacky C pointer arithmetic, and probably of
 * **Substitute:** `:%s/old/new/[g]` and `:s/old/new/`, including patterns and replacements that contain spaces.
 * **Indenting:** `>>` and `<<` with `:set sw=N`.
 * **Window chords:** `C-w w`/`C-w C-w` cycle focus, `C-w h/j/k/l` jump directionally — vim-style, with `C-w ESC` cancelling the chord. They work from text buffers *and* from the Dired pane (which isn't vi-modal; the binding table covers it), so `C-x C-d` followed by `C-w w` ping-pongs focus between directory and buffer.
-* **Ex command line:** `:w [file]`, `:q`, `:q!`, `:wq`, `:x`, `:<N>` (goto line), `:set sw=N`, `:%s/.../.../[g]`.
+* **Ex command line:** `:w [file]`, `:q`, `:q!`, `:wq`, `:x`, `:<N>` (goto line), `:set sw=N`, `:%s/.../.../[g]`, `:quotes [N]` (random coder/philosophy quote popup, `N` is 0-based index, `q` to close — including from normal mode if focus moved elsewhere).
 * **Terminal theme auto-detect:** queries your terminal's foreground/background via OSC 10/11 at startup and adopts the palette, falling back to peach-on-black if the terminal doesn't answer.
 
 ### Not Yet (the roadmap)

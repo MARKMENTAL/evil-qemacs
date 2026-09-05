@@ -351,6 +351,88 @@ static int vi_parse_substitute(EditState *s, const char *cmd)
     return 0;
 }
 
+/* Quotes popup: static table of open-source / philosophy quotes.
+ * Display format is always "\"text\" - author" (double quotes outside,
+ * single quotes for any quotation inside the text).  Index N is 0-based. */
+typedef struct {
+    const char *text;
+    const char *author;
+} ViQuote;
+
+static const ViQuote vi_quotes[] = {
+    { "Talk is cheap. Show me the code.", "Linus Torvalds" },
+    { "Every program attempts to expand until it can read mail. Those that can't do this, are replaced by ones that can.", "Jamie Zawinski" },
+    { "Programs must be written for people to read, and only incidentally for machines to execute.", "Harold Abelson" },
+    { "Simplicity is prerequisite for reliability.", "Edsger W. Dijkstra" },
+    { "The best way to predict the future is to invent it.", "Alan Kay" },
+    { "Free software is a matter of liberty, not price; think of 'free speech', not 'free beer'.", "Richard M. Stallman" },
+    { "Given enough eyeballs, all bugs are shallow.", "Eric S. Raymond" },
+    { "Stay hungry, stay foolish.", "Stewart Brand" },
+    { "The question of whether a computer can think is no more interesting than the question of whether a submarine can swim.", "Edsger W. Dijkstra" },
+    { "First, solve the problem. Then, write the code.", "John Johnson" },
+    { "Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away.", "Antoine de Saint-Exupery" },
+    { "The best programs are the ones written when the programmer is supposed to be working on something else.", "Melinda Varian" },
+    { "A primary cause of complexity is that software vendors uncritically adopt almost any feature that users want.", "Niklaus Wirth" },
+};
+
+static int vi_quotes_seeded = 0;
+
+/* Show one quote in a help-style popup (q to close, buffer navigation).
+ * arg: "" for random, otherwise a 0-based index into vi_quotes. */
+static void do_vi_quotes(EditState *s, const char *arg)
+{
+    int n = countof(vi_quotes);
+    int idx;
+    EditBuffer *b;
+
+    while (*arg == ' ' || *arg == '\t')
+        arg++;
+    if (*arg == '\0') {
+        if (!vi_quotes_seeded) {
+            srand((unsigned)time(NULL));
+            vi_quotes_seeded = 1;
+        }
+        idx = rand() % n;
+    } else {
+        char *end;
+        long val = strtol(arg, &end, 10);
+        while (*end == ' ' || *end == '\t')
+            end++;
+        if (end == arg || *end != '\0' || val < 0 || val >= n) {
+            put_status(s, "Invalid quotes index '%s' (0..%d)", arg, n - 1);
+            return;
+        }
+        idx = (int)val;
+    }
+
+    b = qe_new_buffer(s->qs, "*Quotes*", BF_SYSTEM | BF_UTF8);
+    if (!b)
+        return;
+    eb_printf(b, "\"%s\" - %s\n\n-- press q to close --\n",
+              vi_quotes[idx].text, vi_quotes[idx].author);
+    {
+        EditState *e = show_popup(s, b, "Quotes");
+        if (e)
+            e->wrap = WRAP_WORD; /* long quotes word-wrap instead of truncating */
+    }
+}
+
+/* Find the topmost Quotes popup, if any.  Used so bare `q` in vi normal
+ * mode can dismiss it even after focus moved back to a text window
+ * (e.g. via C-w w / C-x o), where the popup's own `q` binding would
+ * otherwise never fire because dispatch is active-window-only. */
+static EditState *vi_find_quotes_popup(QEmacsState *qs)
+{
+    EditState *e, *found = NULL;
+    for (e = qs->first_window; e; e = e->next_window) {
+        if ((e->flags & WF_POPUP) && e->b &&
+            !strcmp(e->b->name, "*Quotes*")) {
+            found = e;
+        }
+    }
+    return found;
+}
+
 /* Ex command prompt callback */
 static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
 {
@@ -422,6 +504,8 @@ static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
                (strstart(cmd, "s", &arg) && *arg == '/')) {
         if (vi_parse_substitute(s, cmd) < 0)
             put_status(s, "Invalid substitute command");
+    } else if (strcmp(cmd, "quotes") == 0) {
+        do_vi_quotes(s, arg);
     } else if (cmd[0] >= '0' && cmd[0] <= '9') {
         /* :<number> goes to that line */
         do_goto_line(s, strtol(cmd, NULL, 10), 0);
@@ -723,6 +807,20 @@ static int vi_normal_key(EditState *s, int key)
          put_status(s, "-- NORMAL --");
          minibuffer_edit(s, "", ":", NULL, NULL, vi_ex_callback, s);
          return 1;
+     case 'q': {
+         /* Dismiss a stranded Quotes popup when focus has moved back to
+          * a text window.  Guard on no pending / no visual so `dq` and
+          * visual flows keep their existing behavior. */
+         EditState *qp;
+         if (!s->vi_visual_active && !s->vi_pending) {
+             qp = vi_find_quotes_popup(s->qs);
+             if (qp) {
+                 do_popup_exit(qp);
+                 return 1;
+             }
+         }
+         return 1;
+     }
      default:
         /* Swallow unknown printable ASCII so it doesn't self-insert */
         if (key >= ' ' && key <= '~')
