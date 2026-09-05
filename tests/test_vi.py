@@ -500,6 +500,26 @@ TESTS = [
     T('put_linereg_vline',    b'V y j V p:wq\r', 'one\ntwo\nthree\n',
       b'one\none\nthree\n', cat='put'),
 
+    # ---- window chords (C-w ..., dired focus ping-pong) ----
+    # C-x C-d opens dired, which steals focus.  From the dired pane (not
+    # vi-modal) the chord goes through the binding table; from text
+    # windows the vi layer handles the pending C-w chord.  Both paths
+    # must land focus back on the text window or the inserted marker
+    # would be swallowed by the readonly dired buffer.
+    T('window_cw_w_from_dired', b'\x18\x04\x17wiFROMTEXT\x1b:wq\r',
+      'one\ntwo\n', b'FROMTEXTone\ntwo\n', cat='windows'),
+    T('window_cw_directional',
+      b'\x18\x04\x17w\x17h\x17liHOP\x1b:wq\r',
+      'one\ntwo\n', b'HOPone\ntwo\n', cat='windows'),
+    T('window_cw_w_cycle_roundtrip',
+      b'\x18\x04\x17w\x17w\x17wiROUND\x1b:wq\r',
+      'one\ntwo\n', b'ROUNDone\ntwo\n', cat='windows'),
+    T('window_cw_cw_variant', b'\x18\x04\x17\x17iDOUBLE\x1b:wq\r',
+      'one\n', b'DOUBLEone\n', cat='windows'),
+    T('window_cw_cancel', b'\x17\x1biTAIL\x1b:wq\r',
+      'keep\n', b'TAILkeep\n', cat='windows',
+      status=['-- NORMAL -- ^W-', '-- NORMAL --']),
+
     # ---- status line checks ----
     T('status_visual',        b'v \x1b:wq\r', 'x\n', b'x\n',
       cat='status', status='-- VISUAL --'),

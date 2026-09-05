@@ -1,8 +1,12 @@
 /*
- * QEmacs, tiny but powerful multimode editor
+ * Evil QEmacs is a fork of QEmacs, tiny but powerful multimode editor
  *
+ * QEmacs developers:
  * Copyright (c) 2000-2002 Fabrice Bellard.
  * Copyright (c) 2000-2026 Charlie Gordon.
+ *
+ * Evil QEmacs developers:
+ * Copyright (c) 2026 Mark Robillard Jr (MARKMENTAL).
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -11498,9 +11502,9 @@ void qe_register_cmd_line_options(QEmacsState *qs, CmdLineOptionDef *table)
 /******************************************************/
 
 const char str_version[] = "Evil QEmacs version " QE_VERSION;
-const char str_credits[] = "Copyright (c) 2000-2003 Fabrice Bellard\n"
-                           "Copyright (c) 2026 Mark Robillard Jr (MARKMENTAL)\n"
-                           "Copyright (c) 2000-2026 Charlie Gordon\n";
+const char str_credits[] = "Copyright (c) 2000-2003 Fabrice Bellard - Original QEmacs\n"
+                           "Copyright (c) 2026 Mark Robillard Jr (MARKMENTAL) - Evil QEmacs & modes/vi.c\n"
+                           "Copyright (c) 2000-2026 Charlie Gordon - Original QEmacs\n";
 
 static void show_version(void)
 {
@@ -12071,7 +12075,7 @@ static const CmdDef basic_commands[] = {
     /*---------------- Window handling ----------------*/
 
     /* should merge these functions */
-    CMD2( "other-window", "C-x o",
+    CMD2( "other-window", "C-x o, C-w w, C-w C-w",
           "Move the focus to another window",
           do_other_window, ESi, "#" "p")
     CMD2( "next-window", "C-x n",
@@ -12087,16 +12091,16 @@ static const CmdDef basic_commands[] = {
     CMD1( "center-cursor", "M-C-l",
           "Center the window contents at point",
           do_center_cursor, 1)
-    CMD3( "find-window-up", "C-x up",
+    CMD3( "find-window-up", "C-x up, C-w k",
           "Move the focus to the window above the current one",
           do_find_window, ESi, "#" "v", KEY_UP)
-    CMD3( "find-window-down", "C-x down",
+    CMD3( "find-window-down", "C-x down, C-w j",
           "Move the focus to the window below the current one",
           do_find_window, ESi, "#" "v", KEY_DOWN)
-    CMD3( "find-window-left", "C-x left",
+    CMD3( "find-window-left", "C-x left, C-w h",
           "Move the focus to the window to the left of the current one",
           do_find_window, ESi, "#" "v", KEY_LEFT)
-    CMD3( "find-window-right", "C-x right",
+    CMD3( "find-window-right", "C-x right, C-w l",
           "Move the focus to the window to the right of the current one",
           do_find_window, ESi, "#" "v", KEY_RIGHT)
     CMD2( "scroll-left", "C-x <, C-pagedown, M-[",

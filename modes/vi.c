@@ -54,8 +54,10 @@ static int vi_normalize_key(int key)
 static void vi_set_pending(EditState *s, int pending)
 {
     s->vi_pending = pending;
-    if (pending)
+    if (pending >= ' ' && pending <= '~')
         put_status(s, "-- NORMAL -- %c-", pending);
+    else if (pending)
+        put_status(s, "-- NORMAL -- ^%c-", pending + '@');
     else
         put_status(s, "-- NORMAL --");
 }
@@ -525,6 +527,32 @@ static int vi_normal_key(EditState *s, int key)
          vi_set_pending(s, 0);
          return 1;
      }
+     if (s->vi_pending == KEY_CTRL('w')) {
+         if (key == 'w' || key == KEY_CTRL('w')) {
+             do_other_window(s, 1);
+         }
+#ifndef CONFIG_TINY
+         else if (key == 'h') {
+             do_find_window(s, KEY_LEFT);
+         } else if (key == 'j') {
+             do_find_window(s, KEY_DOWN);
+         } else if (key == 'k') {
+             do_find_window(s, KEY_UP);
+         } else if (key == 'l') {
+             do_find_window(s, KEY_RIGHT);
+         }
+#endif
+         else if (key == ':' || key == 'i' || key == 'a' ||
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'y' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown C-w command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
 
     switch (key) {
     case 'i':
@@ -614,6 +642,9 @@ static int vi_normal_key(EditState *s, int key)
         return 1;
     case '<':
         vi_set_pending(s, '<');
+        return 1;
+    case KEY_CTRL('w'):
+        vi_set_pending(s, KEY_CTRL('w'));
         return 1;
      case '/':
          s->vi_pending = 0;
