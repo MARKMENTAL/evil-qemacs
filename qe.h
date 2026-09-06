@@ -1793,7 +1793,6 @@ void do_hide_window(EditState *s, int set);
 void do_delete_hidden_windows(EditState *s);
 void do_describe_key_briefly(EditState *s, const char *keystr, int argval);
 EditBuffer *new_help_buffer(EditState *s);
-void do_help_for_help(EditState *s);
 void qe_event_init(QEmacsState *qs);
 void window_get_min_size(EditState *s, int *w_ptr, int *h_ptr);
 int window_resize(EditState *s, int target_w, int target_h);

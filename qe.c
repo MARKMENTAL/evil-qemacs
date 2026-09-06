@@ -10728,23 +10728,6 @@ EditBuffer *new_help_buffer(EditState *s)
     return qe_new_buffer(s->qs, "*Help*", flags);
 }
 
-void do_help_for_help(EditState *s)
-{
-    EditBuffer *b;
-
-    b = new_help_buffer(s);
-    if (!b)
-        return;
-
-    eb_style_puts(b, DESCRIBE_STYLE_HEAD, "QEmacs help for help - Press q to quit:\n\n");
-    eb_puts(b,
-            "C-h C-h   Show this help\n"
-            "C-h b     Display table of all key bindings\n"
-            "C-h c     Describe key briefly\n"
-            );
-    show_popup(s, b, "QEmacs help for help");
-}
-
 #ifdef CONFIG_WIN32
 
 void qe_event_init(QEmacsState *qs)
@@ -12166,22 +12149,22 @@ static const CmdDef basic_commands[] = {
 #endif
 
     /*---------------- Help ----------------*/
+    /* NOTE: the C-h help tree was removed in favor of the `wisdom`
+     * command (F1, M-x wisdom).  The describe/trace commands
+     * below remain available via M-x with no default key bindings. */
 
-    CMD2( "toggle-trace-mode", "C-h d",
+    CMD2( "toggle-trace-mode", "",
           "Enable or disable trace mode: show the *Trace* buffer with debugging info",
           do_toggle_trace_mode, ESi, "P")
-    CMD2( "set-trace-options", "C-h t",
+    CMD2( "set-trace-options", "",
          "Select the trace options: all, none, command, debug, emulate, shell, tty, pty",
           do_set_trace_options, ESs,
           "s{Trace options: }[trace]|trace|")
-    CMD2( "describe-key-briefly", "C-h c, C-h k, f6",
+    CMD2( "describe-key-briefly", "f6",
           "Describe a key binding",
           do_describe_key_briefly, ESsi,
           "s{Describe key: }|keys|"
           "P")
-    CMD0( "help-for-help", "C-h C-h, f1",
-          "Show the qemacs help window",
-          do_help_for_help)
 
     /*---------------- International ----------------*/
 
@@ -12655,9 +12638,9 @@ static int qe_init(QEmacsState *qs, int argc, char **argv)
     }
 #endif
 #ifdef CONFIG_TINY
-    put_status(s, "Tiny Evil QEmacs %s - Press F1 for help", QE_VERSION);
+    put_status(s, "Tiny Evil QEmacs %s", QE_VERSION);
 #else
-    put_status(s, "Evil QEmacs %s - Press F1 for help", QE_VERSION);
+    put_status(s, "Evil QEmacs %s", QE_VERSION);
     b = qe_find_buffer_name(qs, "*errors*");
     if (b != NULL) {
         show_popup(s, b, "Errors");

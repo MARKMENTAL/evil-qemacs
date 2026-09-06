@@ -1545,7 +1545,7 @@ static const CmdDef isearch_commands[] = {
     CMD2( "isearch-exit", "RET, QUIT",
           "Exit isearch, leave point at location found",
            isearch_exit, ESi, "k")
-    CMDx( "isearch-mode-help", "f1, C-h",
+    CMDx( "isearch-mode-help", "",
           "show the help page for isearch",
            isearch_mode_help, ES, "")
     CMD2( "isearch-printing-char", "TAB, C-j",

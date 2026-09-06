@@ -703,11 +703,11 @@ static const CmdDef var_commands[] = {
           "Set the value of a variable",
           do_set_variable, ESss,
           "s{Set variable: }[variable]|variable|s{to value: }[value]|value|")
-    CMD2( "describe-variable", "C-h v",
+    CMD2( "describe-variable", "",
           "Show information for a variable",
           do_describe_variable, ESs,
           "s{Describe variable: }[variable]|variable|")
-    CMD0( "show-all-variables", "C-h C-v",
+    CMD0( "show-all-variables", "",
           "Show value and information for all variables",
           do_show_all_variables)
 };

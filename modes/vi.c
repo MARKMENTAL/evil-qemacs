@@ -351,15 +351,15 @@ static int vi_parse_substitute(EditState *s, const char *cmd)
     return 0;
 }
 
-/* Quotes popup: static table of open-source / philosophy quotes.
+/* Wisdom popup: static table of open-source / philosophy quotes.
  * Display format is always "\"text\" - author" (double quotes outside,
  * single quotes for any quotation inside the text).  Index N is 0-based. */
 typedef struct {
     const char *text;
     const char *author;
-} ViQuote;
+} ViWisdom;
 
-static const ViQuote vi_quotes[] = {
+static const ViWisdom vi_wisdom[] = {
     { "Talk is cheap. Show me the code.", "Linus Torvalds" },
     { "Every program attempts to expand until it can read mail. Those that can't do this, are replaced by ones that can.", "Jamie Zawinski" },
     { "Programs must be written for people to read, and only incidentally for machines to execute.", "Harold Abelson" },
@@ -367,6 +367,7 @@ static const ViQuote vi_quotes[] = {
     { "The best way to predict the future is to invent it.", "Alan Kay" },
     { "Free software is a matter of liberty, not price; think of 'free speech', not 'free beer'.", "Richard M. Stallman" },
     { "Given enough eyeballs, all bugs are shallow.", "Eric S. Raymond" },
+    { "Abstraction is for complexity; silicon is for speed.", "MARKMENTAL" },
     { "Stay hungry, stay foolish.", "Stewart Brand" },
     { "The question of whether a computer can think is no more interesting than the question of whether a submarine can swim.", "Edsger W. Dijkstra" },
     { "First, solve the problem. Then, write the code.", "John Johnson" },
@@ -375,22 +376,22 @@ static const ViQuote vi_quotes[] = {
     { "A primary cause of complexity is that software vendors uncritically adopt almost any feature that users want.", "Niklaus Wirth" },
 };
 
-static int vi_quotes_seeded = 0;
+static int vi_wisdom_seeded = 0;
 
 /* Show one quote in a help-style popup (q to close, buffer navigation).
- * arg: "" for random, otherwise a 0-based index into vi_quotes. */
-static void do_vi_quotes(EditState *s, const char *arg)
+ * arg: "" for random, otherwise a 0-based index into vi_wisdom. */
+static void do_vi_wisdom(EditState *s, const char *arg)
 {
-    int n = countof(vi_quotes);
+    int n = countof(vi_wisdom);
     int idx;
     EditBuffer *b;
 
     while (*arg == ' ' || *arg == '\t')
         arg++;
     if (*arg == '\0') {
-        if (!vi_quotes_seeded) {
+        if (!vi_wisdom_seeded) {
             srand((unsigned)time(NULL));
-            vi_quotes_seeded = 1;
+            vi_wisdom_seeded = 1;
         }
         idx = rand() % n;
     } else {
@@ -399,38 +400,47 @@ static void do_vi_quotes(EditState *s, const char *arg)
         while (*end == ' ' || *end == '\t')
             end++;
         if (end == arg || *end != '\0' || val < 0 || val >= n) {
-            put_status(s, "Invalid quotes index '%s' (0..%d)", arg, n - 1);
+            put_status(s, "Invalid wisdom index '%s' (0..%d)", arg, n - 1);
             return;
         }
         idx = (int)val;
     }
 
-    b = qe_new_buffer(s->qs, "*Quotes*", BF_SYSTEM | BF_UTF8);
+    b = qe_new_buffer(s->qs, "*Wisdom*", BF_SYSTEM | BF_UTF8);
     if (!b)
         return;
     eb_printf(b, "\"%s\" - %s\n\n-- press q to close --\n",
-              vi_quotes[idx].text, vi_quotes[idx].author);
+              vi_wisdom[idx].text, vi_wisdom[idx].author);
     {
-        EditState *e = show_popup(s, b, "Quotes");
+        EditState *e = show_popup(s, b, "Wisdom");
         if (e)
             e->wrap = WRAP_WORD; /* long quotes word-wrap instead of truncating */
     }
 }
 
-/* Find the topmost Quotes popup, if any.  Used so bare `q` in vi normal
+/* Find the topmost Wisdom popup, if any.  Used so bare `q` in vi normal
  * mode can dismiss it even after focus moved back to a text window
  * (e.g. via C-w w / C-x o), where the popup's own `q` binding would
  * otherwise never fire because dispatch is active-window-only. */
-static EditState *vi_find_quotes_popup(QEmacsState *qs)
+static EditState *vi_find_wisdom_popup(QEmacsState *qs)
 {
     EditState *e, *found = NULL;
     for (e = qs->first_window; e; e = e->next_window) {
         if ((e->flags & WF_POPUP) && e->b &&
-            !strcmp(e->b->name, "*Quotes*")) {
+            !strcmp(e->b->name, "*Wisdom*")) {
             found = e;
         }
     }
     return found;
+}
+
+/* Global `wisdom` command body: show a random quote (F1, M-x wisdom).
+ * NOTE: no C-h binding on purpose: on standard terminals the tty layer
+ * translates ^H to KEY_DEL (KBS_CONTROL_H), so a "C-h ..." binding would
+ * never fire -- the same reason the old C-h help tree felt dead. */
+static void do_wisdom(EditState *s)
+{
+    do_vi_wisdom(s, "");
 }
 
 /* Ex command prompt callback */
@@ -504,8 +514,8 @@ static void vi_ex_callback(void *opaque, char *buf, CompletionDef *completion)
                (strstart(cmd, "s", &arg) && *arg == '/')) {
         if (vi_parse_substitute(s, cmd) < 0)
             put_status(s, "Invalid substitute command");
-    } else if (strcmp(cmd, "quotes") == 0) {
-        do_vi_quotes(s, arg);
+    } else if (strcmp(cmd, "wisdom") == 0 || strcmp(cmd, "quotes") == 0) {
+        do_vi_wisdom(s, arg);
     } else if (cmd[0] >= '0' && cmd[0] <= '9') {
         /* :<number> goes to that line */
         do_goto_line(s, strtol(cmd, NULL, 10), 0);
@@ -808,12 +818,12 @@ static int vi_normal_key(EditState *s, int key)
          minibuffer_edit(s, "", ":", NULL, NULL, vi_ex_callback, s);
          return 1;
      case 'q': {
-         /* Dismiss a stranded Quotes popup when focus has moved back to
+         /* Dismiss a stranded Wisdom popup when focus has moved back to
           * a text window.  Guard on no pending / no visual so `dq` and
           * visual flows keep their existing behavior. */
          EditState *qp;
          if (!s->vi_visual_active && !s->vi_pending) {
-             qp = vi_find_quotes_popup(s->qs);
+             qp = vi_find_wisdom_popup(s->qs);
              if (qp) {
                  do_popup_exit(qp);
                  return 1;
@@ -886,6 +896,7 @@ static const CmdDef vi_commands[] = {
     CMD0("vi-mode", "", "Toggle Vi/Evil modal editing", do_vi_mode)
     CMD0("vi-normal-mode", "", "Enter Vi normal mode", do_vi_normal_mode)
     CMD0("vi-insert-mode", "", "Enter Vi insert mode", do_vi_insert_mode)
+    CMD0("wisdom", "f1", "Show a random wisdom quote", do_wisdom)
 };
 
 static int vi_init(QEmacsState *qs)

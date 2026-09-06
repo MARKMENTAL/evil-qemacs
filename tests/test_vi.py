@@ -287,9 +287,14 @@ def run_tqe(binary, keys, content, timeout, keep_dir=None, want_path=None):
     # in one chunk while it is busy drawing, and the terminal input layer
     # then composes ESC + following byte into a META key, which changes
     # what the vi layer sees.
+    # A test may pass a list of byte strings instead: each element is
+    # written atomically, which is how real terminals deliver multi-byte
+    # sequences such as function keys (ESC O P) or META chords (ESC x).
+    segs = keys if isinstance(keys, list) else [keys[i:i + 1]
+                                                for i in range(len(keys))]
     idle = 0.0
-    for i in range(len(keys)):
-        os.write(fd, keys[i:i + 1])
+    for seg in segs:
+        os.write(fd, seg)
         idle = 0.0
         while idle < 0.08:
             data = read_avail(0.02)
@@ -351,15 +356,22 @@ class T:
 
     def __init__(self, name, keys, init, want,
                  cat='general', status=None, timeout=5.0,
-                 want_path=None):
+                 want_path=None, want_out=None):
         self.name = name
-        self.keys = keys
+        self.keys = keys    # bytes (sent byte-at-a-time) or list of
+                            # bytes (each element written atomically,
+                            # for F-keys / META chords)
         self.init = init
         self.want = want
         self.cat = cat
         self.status = status          # str or list of str, or None
         self.timeout = timeout
         self.want_path = want_path    # may contain {DIR}
+        self.want_out = want_out      # bytes or list of bytes that must
+                                      # appear in the ANSI-stripped
+                                      # terminal output (for popups,
+                                      # whose body never hits the file
+                                      # or the status line)
 
 
 # -------------------------------------------------------------------------
@@ -529,11 +541,36 @@ TESTS = [
       cat='status', status='-- NORMAL --'),
     T('status_insert',        b'i\x1b:wq\r', 'x\n', b'x\n',
       cat='status', status=['-- INSERT --', '-- NORMAL --']),
+
+    # ---- wisdom quotes ----
+    T('wisdom_ex',        b':wisdom 0\rq:wq\r', 'hello\n', b'hello\n',
+      cat='wisdom',
+      want_out=[b'Wisdom', b'Talk is cheap', b'press q to close']),
+    T('wisdom_alias',     b':quotes 0\rq:wq\r', 'hello\n', b'hello\n',
+      cat='wisdom',
+      want_out=[b'Wisdom', b'Talk is cheap']),
+    T('wisdom_bad_index', b':wisdom 99\r:wq\r', 'hello\n', b'hello\n',
+      cat='wisdom', status='Invalid wisdom index'),
+    # F1 arrives as one SS3 sequence on real terminals; send atomically
+    # (byte-at-a-time would let vi eat the leading ESC).
+    T('wisdom_f1',        [b'\x1bOP', b'q:wq\r'], 'hello\n', b'hello\n',
+      cat='wisdom',
+      want_out=[b'Wisdom', b'press q to close']),
+    # M-x itself is unreachable as a META chord in evil mode (the vi
+    # layer consumes META-x as `x`), but F2 is bound to execute-command,
+    # so drive M-x wisdom through F2 (vt100 SS3 Q, sent atomically).
+    T('wisdom_mx',        [b'\x1bOQ', b'wisdom\r', b'q:wq\r'],
+      'hello\n', b'hello\n',
+      cat='wisdom',
+      want_out=[b'Wisdom', b'press q to close']),
 ]
 
 
 def run_one(t, binary, workdir, default_timeout):
-    keys = t.keys.replace(b'{DIR}', workdir.encode())
+    if isinstance(t.keys, list):
+        keys = [k.replace(b'{DIR}', workdir.encode()) for k in t.keys]
+    else:
+        keys = t.keys.replace(b'{DIR}', workdir.encode())
     want_path = t.want_path.replace('{DIR}', workdir) if t.want_path else None
     file_bytes, term_out, frames, status = run_tqe(
         binary, keys, t.init, t.timeout or default_timeout,
@@ -552,6 +589,13 @@ def run_one(t, binary, workdir, default_timeout):
         for w in wanted:
             if not any(w in line for line in frames):
                 errors.append('status %r not seen on the status line'
+                              % (w,))
+    if t.want_out:
+        clean = strip_ansi(term_out)
+        wanted = t.want_out if isinstance(t.want_out, list) else [t.want_out]
+        for w in wanted:
+            if w not in clean:
+                errors.append('output %r not seen on the terminal'
                               % (w,))
     return errors
 

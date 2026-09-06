@@ -132,15 +132,15 @@ optional number is used to provide a numeric argument to the commands which
 can handle them. If the command cannot handle a numerical argument, it
 is simply repeated @code{N} times.
 
-@section Help
+@section Wisdom
 
-You can press @kbd{C-h b} to have the list of all the currently active
-bindings, including the ones of the current editing mode.
+Press @kbd{F1} for a random wisdom quote,
+or @kbd{M-x wisdom}.  In vi normal mode, @code{:wisdom [N]} shows
+quote number @code{N} (0-based), @code{:quotes} is kept as an alias.
+Press @kbd{q} to close the popup.
 
 @example
-C-h C-h, F1             : help-for-help
-C-h b                   : describe-bindings
-C-h c                   : describe-key-briefly
+F1                    : wisdom
 @end example
 
 @section Simple commands
@@ -248,12 +248,10 @@ C-x f                   : toggle-full-screen
 A-=                     : compare-windows
 @end example
 
-@section Help functions
+@section Wisdom
 
 @example
-C-h C-h, f1             : help-for-help
-C-h b                   : describe-bindings
-C-h c, C-h k            : describe-key-briefly
+F1                    : wisdom
 @end example
 
 @section International

@@ -3758,7 +3758,10 @@ static const CmdDef extra_commands[] = {
           "Swap words before and after point",
           do_transpose, ESi, "*" "v", CMD_TRANSPOSE_WORDS)
 
-    CMD2( "show-bindings", "C-h B, f5",
+    /* NOTE: the C-h help key tree was removed in favor of the `wisdom`
+     * command (F1, M-x wisdom).  The commands below remain
+     * available via M-x with no default key bindings (except f5). */
+    CMD2( "show-bindings", "f5",
           "Show current bindings for a given command",
           do_show_bindings, ESs,
           "s{Show bindings of command: }[command]|command|")
@@ -3774,55 +3777,55 @@ static const CmdDef extra_commands[] = {
           "v", 1)
 
     // XXX: the commands below should use do_load_file_from_path()
-    CMDx( "qemacs-hello", "C-h h",
+    CMDx( "qemacs-hello", "",
           "Create a test buffer with various charsets",
           do_qemacs_hello)
-    CMDx( "qemacs-manual", "C-h m",
+    CMDx( "qemacs-manual", "",
           "Show the Quick Emacs manual",
           do_qemacs_manual)
-    CMDx( "qemacs-faq", "C-h C-f",
+    CMDx( "qemacs-faq", "",
           "Show the Quick Emacs FAQ",
           do_qemacs_faq)
 
-    CMD0( "about-qemacs", "C-h q",
+    CMD0( "about-qemacs", "",
           "Display information about Quick Emacs",
           do_about_qemacs)
-    CMD2( "apropos", "C-h a, C-h C-a",
+    CMD2( "apropos", "",
           "List commands and variables matching a topic",
           do_apropos, ESs,
           "s{Apropos: }[symbol]|apropos|")
-    CMD2( "wall-chart", "C-h w",
+    CMD2( "wall-chart", "",
           "List local and global key bindings as a wall chart",
           do_wall_chart, ESi, "p")
-    CMD2( "describe-bindings", "C-h b",
+    CMD2( "describe-bindings", "",
           "List local and global key bindings",
           do_describe_bindings, ESi, "p")
-    CMD2( "describe-buffer", "C-h C-b",
+    CMD2( "describe-buffer", "",
           "Show information about the current buffer",
           do_describe_buffer, ESi, "p")
-    CMD2( "describe-function", "C-h f",
+    CMD2( "describe-function", "",
           "Show information and bindings for a command",
           do_describe_function, ESs,
           "s{Describe function: }[command]|command|")
-    CMD2( "describe-screen", "C-h s, C-h C-s",
+    CMD2( "describe-screen", "",
           "Show information about the current screen",
           do_describe_screen, ESi, "p")
-    CMD2( "describe-window", "C-h C-w",
+    CMD2( "describe-window", "",
           "Show information about the current window",
           do_describe_window, ESi, "p")
-    CMD2( "describe-prefix-bindings", "C-h p",
+    CMD2( "describe-prefix-bindings", "",
           "Display a list of commands with a common binding prefix",
           do_describe_prefix_bindings, ESs, "s{Binding prefix: }")
-    CMD2( "describe-C-h", "C-h ?",
+    CMD2( "describe-C-h", "",
           "Display a summary of C-h commands",
           do_describe_prefix_bindings, ESs, "@{C-h}")
-    CMD2( "describe-C-c", "C-c ?, C-c C-h",
+    CMD2( "describe-C-c", "",
           "Display a summary of C-c commands",
           do_describe_prefix_bindings, ESs, "@{C-c}")
-    CMD2( "describe-C-x", "C-x ?, C-x C-h",
+    CMD2( "describe-C-x", "",
           "Display a summary of C-x commands",
           do_describe_prefix_bindings, ESs, "@{C-x}")
-    CMD2( "describe-C-x-RET", "C-x RET ?, C-x RET C-h",
+    CMD2( "describe-C-x-RET", "",
           "Display a summary of C-x RET commands",
           do_describe_prefix_bindings, ESs, "@{C-x RET}")
 
