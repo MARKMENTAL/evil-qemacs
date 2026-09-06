@@ -14,7 +14,15 @@ set -euo pipefail
 # Adjust these if your toolchain lives elsewhere
 CROSS_PREFIX="arm-linux-gnueabihf"
 CC="${CROSS_PREFIX}-gcc"
+AR="${CROSS_PREFIX}-ar"
 EXE=""                     # empty → no suffix; set to e.g. ".bin" if needed
+
+# 32-bit armv7l target notes:
+# The "${CROSS_PREFIX}-gcc" toolchain defaults to ARMv7-A hard-float
+# (armv7-a+fp, EABI5), so no extra -march/-mfpu CFLAGS are needed and
+# none are passed: overriding CFLAGS on the make command line would
+# clobber the Makefiles' own CFLAGS+= include paths (-I., -I..,
+# -I./libqhtml, -I$(OBJS_DIR)) and break the build.
 
 # Target selection: teqe (tiny) or eqe (full)
 TARGET="${1:-eqe}"
@@ -30,28 +38,35 @@ check_tool() {
 
 # ----- validation ----------------------------------------------------------
 check_tool "$CC"
+check_tool "$AR"
 [ "$TARGET" = "eqe" ] || [ "$TARGET" = "teqe" ] || die "unknown target '$TARGET', use 'eqe' or 'teqe'"
 
 # ----- prepare Makefile config --------------------------------------------
-# Build the make command line.
+# Build the make command line (bash array so values containing spaces
+# such as LDFLAGS/CFLAGS stay a single make argument).
 # -B forces rebuilding all targets regardless of timestamps.
-# CC is passed on the command line to override config.mak's CC.
+# CC/AR are passed on the command line to override config.mak's natives;
+# they propagate to the libqhtml sub-make via MAKEFLAGS.
+# TARGET_ARCH=arm keeps the .objs dir named for the target, not the host.
 # For teqe also set TARGET_TINY=1.
 # Static linking keeps the binary self-contained for devices that may
 # not have a recent glibc (e.g. the Miyoo Mini Plus).
 # HOST_CFLAGS=-I. is needed because the host tools (fbftoqe & co) are
 # built with HOST_CC while CC is the cross compiler; without it the
 # tools cannot find cutils.h.
-# The goal is the binary itself, not "all": the full target also builds
-# host-side extras (html2png, manuals) that have no business in a
-# cross-compiled device binary.
-MAKE_FLAGS="-B LDFLAGS=-static -Wl,--no-as-needed -lc HOST_CFLAGS=-I."
+# The goals are the binary itself plus its cross-built static dep,
+# not "all": the full target also builds host-side extras (html2png,
+# manuals) that have no business in a cross-compiled device binary.
+# NOTE: goal `eqe` alone is not enough: with TARGET=qe set, `libqhtml.a`
+# is a prerequisite of eqe_g but the `libqhtml` sub-make is only wired
+# into `all`, so it must be requested explicitly (teqe needs no libqhtml).
+MAKE_ARGS=(-B "LDFLAGS=-static -Wl,--no-as-needed -lc" "HOST_CFLAGS=-I." "TARGET_ARCH=arm" "CC=${CC}" "AR=${AR}")
 case "$TARGET" in
     eqe)
-        MAKE_FLAGS="$MAKE_FLAGS TARGET=qe CC=${CC} eqe"
+        MAKE_ARGS+=("TARGET=qe" "libqhtml" "eqe")
         ;;
     teqe)
-        MAKE_FLAGS="$MAKE_FLAGS TARGET=tqe TARGET_TINY=1 CC=${CC} teqe"
+        MAKE_ARGS+=("TARGET=tqe" "TARGET_TINY=1" "teqe")
         ;;
     *)
         die "unsupported target '$TARGET'"
@@ -59,7 +74,7 @@ case "$TARGET" in
 esac
 
 # ----- build ---------------------------------------------------------------
-if ! make $MAKE_FLAGS 2>&1; then
+if ! make "${MAKE_ARGS[@]}" 2>&1; then
     die "make failed"
 fi
 

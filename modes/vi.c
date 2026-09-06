@@ -98,12 +98,11 @@ static void vi_visual_region(EditState *s, int *p1, int *p2)
 {
     int a = s->vi_visual_start;
     int c = s->offset;
-    int save, tmp;
+    int save = s->offset, tmp;
     if (a > c) { tmp = a; a = c; c = tmp; }
     if (s->vi_visual_linewise) {
-        save = s->offset;
         s->offset = a; do_bol(s); a = s->offset;
-        s->offset = save; do_eol(s); c = s->offset;
+        s->offset = c; do_eol(s); c = s->offset;
         s->offset = save;
         c = vi_include_newline(s->b, c);
     } else {
@@ -123,20 +122,31 @@ static void vi_visual_region(EditState *s, int *p1, int *p2)
  * The cursor (s->offset) is the moving end of the selection; only the
  * mark is adjusted so motions keep their natural arithmetic and the
  * yank/delete region can always be recomputed from anchor + cursor.
- * Linewise snaps the cursor to EOL of the last selected line. */
+ * Linewise is bidirectional: cursor at/below the anchor snaps to EOL
+ * of the cursor line, cursor above the anchor snaps to BOL of the
+ * cursor line (mark holds the anchor end in both cases). */
 static void vi_visual_update(EditState *s)
 {
     int a = s->vi_visual_start;
     int c = s->offset;
-    int save, tmp;
-    if (a > c) { tmp = a; a = c; c = tmp; }
+    int save;
     if (s->vi_visual_linewise) {
-        save = s->offset;
-        s->offset = a; do_bol(s); a = s->offset;
-        s->offset = save; do_eol(s); c = s->offset;
-        s->b->mark = a;
-        s->offset = c;
+        if (c >= a) {
+            save = c;
+            s->offset = a; do_bol(s); a = s->offset;
+            s->offset = save; do_eol(s); c = s->offset;
+            s->b->mark = a;
+            s->offset = c;
+        } else {
+            save = c;
+            s->offset = a; do_eol(s); a = s->offset;
+            s->offset = save; do_bol(s); c = s->offset;
+            s->b->mark = a;
+            s->offset = c;
+        }
     } else {
+        int tmp;
+        if (a > c) { tmp = a; a = c; c = tmp; }
         s->b->mark = a;
     }
     s->region_style = QE_STYLE_REGION_HILITE;
@@ -169,6 +179,22 @@ static void vi_visual_toggle(EditState *s, int linewise)
         vi_visual_end(s);
     } else {
         vi_visual_begin(s, linewise);
+    }
+}
+
+/* Yank the current whole line (vim `yy`) without deleting it. */
+static void vi_yank_whole_line(EditState *s)
+{
+    int save = s->offset;
+    int p1, p2;
+    do_bol(s); p1 = s->offset;
+    do_eol(s); p2 = s->offset;
+    p2 = vi_include_newline(s->b, p2);
+    s->offset = save;
+    if (p1 != p2) {
+        do_kill(s, p1, p2, 0, 1);
+        vi_yank_linewise[s->qs->yank_current] = 1;
+        s->qs->last_cmd_func = NULL;
     }
 }
 
@@ -562,7 +588,7 @@ static int vi_normal_key(EditState *s, int key)
     /* Pending multi-key commands (dd, gg, >>, <<, ...).
      * Mode-switching keys cancel the pending state and are processed
      * normally so e.g. "d:q!" does the right thing. */
-    if (s->vi_pending == 'd') {
+     if (s->vi_pending == 'd') {
         if (key == 'd') {
             do_kill_whole_line(s, 1);
             vi_yank_linewise[s->qs->yank_current] = 1;
@@ -573,6 +599,20 @@ static int vi_normal_key(EditState *s, int key)
              return vi_normal_key(s, key);
          } else {
              put_status(s, "Unknown d command");
+         }
+         vi_set_pending(s, 0);
+         return 1;
+     }
+     if (s->vi_pending == 'y') {
+         if (key == 'y') {
+             vi_yank_whole_line(s);
+         } else if (key == ':' || key == 'i' || key == 'a' ||
+                    key == 'o' || key == 'O' || key == 'v' ||
+                    key == 'V' || key == 'd' || key == 'p') {
+             vi_set_pending(s, 0);
+             return vi_normal_key(s, key);
+         } else {
+             put_status(s, "Unknown y command");
          }
          vi_set_pending(s, 0);
          return 1;
@@ -803,7 +843,7 @@ static int vi_normal_key(EditState *s, int key)
          if (s->vi_visual_active)
              vi_visual_yank(s);
          else
-             put_status(s, "Use v/V then y to yank");
+             vi_set_pending(s, 'y');
          return 1;
      case 'd':
          if (s->vi_visual_active) {

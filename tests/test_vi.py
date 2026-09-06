@@ -497,6 +497,12 @@ TESTS = [
       b'aaa\nbbb\nccc\n\naaa\nbbb\n', cat='visual'),
     T('vline_bwd_delete',     b'G V k d:wq\r', 'aaa\nbbb\nccc\n',
       b'aaa\nbbb\n', cat='visual'),
+    T('vline_up_delete',      b'j V k d:wq\r', 'aaa\nbbb\nccc\n',
+      b'ccc\n', cat='visual'),
+    T('vline_up_yank_put_eof', b'j V k y G p:wq\r', 'aaa\nbbb\nccc\n',
+      b'aaa\nbbb\nccc\naaa\nbbb\n', cat='visual'),
+    T('vline_up2_delete',     b'G V k k d:wq\r', 'aaa\nbbb\nccc\n',
+      b'aaa\n', cat='visual'),
 
     # ---- put / register types ----
     T('put_charwise_eol',     b'v l y j $ p:wq\r', 'abcd\nefgh\n',
