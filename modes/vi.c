@@ -420,9 +420,16 @@ typedef struct {
 
 static const ViWisdom vi_wisdom[] = {
     {"Talk is cheap. Show me the code.", "Linus Torvalds"},
+    {"Make it work, make it right, make it fast.", "Kent Beck"},
     {"Every program attempts to expand until it can read mail. Those that "
      "can't do this, are replaced by ones that can.",
      "Jamie Zawinski"},
+    {"Controlling complexity is the essence of computer programming.",
+    "Brian Kernighan"},
+    {"Rules are for the obedience of fools and guidance of the wise.",
+    "Douglas Bader"},
+    {"Inside every large program is a small one struggling to get out.",
+    "Tony Hoare"},
     {"Programs must be written for people to read, and only incidentally for "
      "machines to execute.",
      "Harold Abelson"},
