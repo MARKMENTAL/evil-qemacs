@@ -14,14 +14,19 @@ The implementation is messy, full of hacky C pointer arithmetic, and probably of
 
 * **Modal state machine:** Normal, Insert, Visual, and Visual Line modes wired directly into QEmacs window contexts, with live selection highlighting.
 * **Motions:** `h`/`j`/`k`/`l`, `w`/`b`, `0`/`^`/`$`, `G`, `gg` — plus `ESC`-cancellation of pending commands, because typing `d:q!` should do the right thing.
+* **Evil priority — emacs chords are ESC:** in vi text windows every `Ctrl-*` / `Meta-*` chord behaves as `ESC` (enter/cancel to normal mode) and never reaches the emacs binding table. Only `C-w` (vim window prefix) and `C-[` (= `ESC`) are exempt; bare `TAB`/`RET`/`BS`/`DEL` still edit in insert mode and the minibuffer. Concretely, these are now unreachable from text and all act as `ESC` instead:
+  * file/buffer: `C-x C-f` (`find-file`), `C-x C-s` (`save-buffer`), `C-x C-w` (`write-file`), `C-x C-v` (`find-alternate-file`), `C-x i` (`insert-file`), `C-x b`/`k` (switch/kill buffer) — use `:w [file]` / `:q` / `:wq` / `:x` instead;
+  * directory: `C-x C-d` (`dired`) can't be opened from a vi text window;
+  * prefix arg: `C-u` (`universal-argument`);
+  * minibuffer (`:` / `/` / `?` prompts): `C-p` / `C-n` history (use `up`/`down`, which still work), `C-y` electric yank — any chord aborts the prompt back to normal mode, same as `C-g`.
 * **Operators:** `x`/`xx`, `dd`, and the full Visual trio: `d`, `y`, `x` over any selection. `u` undoes.
 * **Registers with vim semantics:** `p` knows charwise from linewise. `dd` followed by `p` puts the line back below the cursor, `dd j p` appends it after the next line, and a charwise yank pastes after the cursor character, landing on the last pasted char. Visual `p` replaces the selection without clobbering the register being pasted.
 * **Search:** `/` forward, `?` backward, `n`/`N` to repeat, with vim-style `wrapscan` so searches wrap around the buffer instead of silently giving up.
 * **Substitute:** `:%s/old/new/[g]` and `:s/old/new/`, including patterns and replacements that contain spaces.
 * **Indenting:** `>>` and `<<` with `:set sw=N`.
-* **Window chords:** `C-w w`/`C-w C-w` cycle focus, `C-w h/j/k/l` jump directionally — vim-style, with `C-w ESC` cancelling the chord. They work from text buffers *and* from the Dired pane (which isn't vi-modal; the binding table covers it), so `C-x C-d` followed by `C-w w` ping-pongs focus between directory and buffer.
+* **Window chords:** `C-w w`/`C-w C-w` cycle focus, `C-w h/j/k/l` jump directionally — vim-style, with `C-w ESC` cancelling the chord. They work from text buffers *and* from the Dired pane (which isn't vi-modal; the binding table covers it), so `C-w w` ping-pongs focus between directory and buffer. (Note: `C-x C-d` no longer opens dired from a vi text window — `C-x` is `ESC` there now.)
 * **Ex command line:** `:w [file]`, `:q`, `:q!`, `:wq`, `:x`, `:<N>` (goto line), `:set sw=N`, `:%s/.../.../[g]`, `:wisdom [N]` (`:quotes` alias; random coder/philosophy quote popup, `N` is 0-based index, `q` to close — including from normal mode if focus moved elsewhere).
-* **Wisdom over help:** `F1` or `M-x wisdom` shows a random quote. The old QEmacs `C-h` help tree is gone (it never fired on standard terminals anyway — `^H` arrives as `KEY_DEL`; all `describe-*`/manual/faq commands remain on `M-x` with no key bindings); `help-for-help` was deleted.
+* **Wisdom over help:** `F1`, `F2 wisdom`, or `:wisdom` shows a random quote (`M-x` as a chord is pure `ESC` now, so drive `execute-command` via `F2`). The old QEmacs `C-h` help tree is gone (it never fired on standard terminals anyway — `^H` arrives as `KEY_DEL`; all `describe-*`/manual/faq commands remain on `M-x` with no key bindings); `help-for-help` was deleted.
 * **Terminal theme auto-detect:** queries your terminal's foreground/background via OSC 10/11 at startup and adopts the palette, falling back to peach-on-black if the terminal doesn't answer.
 
 ### Not Yet (the roadmap)
@@ -30,7 +35,7 @@ The implementation is messy, full of hacky C pointer arithmetic, and probably of
 * `:e`, splits (`:sp`/`:vsp`), buffer cycling.
 * Vi navigation in hex mode (wandering firmware images with `hjkl` and `r`-replacing bytes is the dream).
 * Vim-aligned `w`/`b` word semantics (currently `w` stops at the end of the word, not the start of the next one).
-* Visual block (`Ctrl+v`).
+* Visual block (`Ctrl+v` — currently `C-v` aborts to normal mode per the evil-priority rule, so visual block will need a non-`Ctrl` binding or an explicit carve-out).
 
 ---
 
@@ -88,7 +93,7 @@ at runtime the shared libraries from the glibc version used for linking
 
 These come from glibc's NSS-based user lookups (`getpwent`/`getpwnam` in the home-directory code) and are benign for this use — the binary runs fine on the device. Ignore them.
 
-Then copy the binary over and run it (`scp teqe mini:/media/sdcard/`, or however you shuffle files onto yours). Vi mode is on by default: normal mode at startup, `i` to insert, `ESC` to get back.
+Then copy the binary over and run it (`scp teqe mini:/media/sdcard/`, or however you shuffle files onto yours). Vi mode is on by default: normal mode at startup, `i` to insert, `ESC` (or `C-c` / any `Ctrl`/`Meta` chord) to get back.
 
 ---
 
@@ -100,7 +105,7 @@ There's a real test suite, because "trust me bro it works on my machines" is not
 make test
 ```
 
-61 pty-driven tests drive the actual binary through a virtual terminal — motions, pending commands, search wrap, substitute, visual yank/delete/put, register types, ex commands, even status-line contents. The harness answers the terminal's OSC color queries and reconstructs the screen, so tests are deterministic. See [tests/test_vi.py](tests/test_vi.py) for the catalog (`--list`, name/category filters, `--binary`).
+85 pty-driven tests drive the actual binary through a virtual terminal — motions, pending commands, search wrap, substitute, visual yank/delete/put, register types, ex commands, emacs-chords-as-ESC, even status-line contents. The harness answers the terminal's OSC color queries and reconstructs the screen, so tests are deterministic. See [tests/test_vi.py](tests/test_vi.py) for the catalog (`--list`, name/category filters, `--binary`).
 
 ---
 

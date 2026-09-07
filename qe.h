@@ -847,6 +847,9 @@ struct EditState {
 
 /* Vi/Evil modal editing layer */
 int vi_handle_key(EditState *s, int key);
+int vi_is_emacs_chord(int key);
+int vi_is_minibuf_abort_key(int key);
+void vi_enter_normal_mode(EditState *s);
 
 struct ModeProbeData {
     const char *real_filename;

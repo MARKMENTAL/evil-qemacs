@@ -538,6 +538,38 @@ TESTS = [
       'keep\n', b'TAILkeep\n', cat='windows',
       status=['-- NORMAL -- ^W-', '-- NORMAL --']),
 
+    # ---- emacs chords behave as ESC (evil priority) ----
+    # Any Ctrl-*/Meta-* chord (except C-w window prefix and C-[ == ESC)
+    # enters/cancels to vim normal mode instead of running the emacs
+    # binding.  Bare editing keys (TAB/RET/BS/DEL) still pass through in
+    # insert mode and the minibuffer so prompts stay usable.
+    T('esc_insert_ctrl_c',   b'ihello\x03:wq\r', '', b'hello',
+      cat='esc-chords'),
+    T('esc_insert_ctrl_x',   b'ihello\x18:wq\r', '', b'hello',
+      cat='esc-chords'),
+    T('esc_insert_ctrl_g',   b'ihello\x07:wq\r', '', b'hello',
+      cat='esc-chords'),
+    T('esc_normal_ctrl_c',   b'\x03:wq\r', 'keep\n', b'keep\n',
+      cat='esc-chords'),
+    T('esc_cx_cc_no_exit',   b'\x18\x03:wq\r', 'keep\n', b'keep\n',
+      cat='esc-chords'),
+    T('esc_pending_d_cancel', b'd\x03:wq\r', 'unchanged\n', b'unchanged\n',
+      cat='esc-chords'),
+    T('esc_visual_ctrl_c',   b'v l l \x03:wq\r', 'abcd\n', b'abcd\n',
+      cat='esc-chords', status='-- NORMAL --'),
+    T('esc_search_abort',    b'/foo\x03:wq\r', 'foo\nbar\n', b'foo\nbar\n',
+      cat='esc-chords'),
+    # META-x arrives atomically so the tty layer composes ESC+x into a
+    # META chord; it must be pure ESC (no `x` delete like the old
+    # ESC-followed-by-base behavior).
+    T('esc_meta_x_no_delete', [b'\x1bx', b':wq\r'], 'abc\n', b'abc\n',
+      cat='esc-chords'),
+    # Bare editing keys keep working where text is actually entered.
+    T('esc_insert_bs',       b'ia\x7f\x1b:wq\r', '', b'',
+      cat='esc-chords'),
+    T('esc_insert_ret',      b'iab\rod\x1b:wq\r', '', b'ab\nod',
+      cat='esc-chords'),
+
     # ---- status line checks ----
     T('status_visual',        b'v \x1b:wq\r', 'x\n', b'x\n',
       cat='status', status='-- VISUAL --'),
